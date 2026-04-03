@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "819080906669",
+    "project_id": "chologo-03142026",
+    "storage_bucket": "chologo-03142026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:819080906669:android:22c3c8b5de0bff75c84324",
+        "android_client_info": {
+          "package_name": "com.example.chologo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "819080906669-hsqimleacib9jrh56kpm8jp887ve73fd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.chologo",
+            "certificate_hash": "13bbb66dc15a01ab81bd9402d2abc573bb762160"
+          }
+        },
+        {
+          "client_id": "819080906669-60ikml1vp6v2sn6okjqdim6sehps2gsr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBh8KvBDEoKmdJm33d5npkxVRY7cU-jl7Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "819080906669-60ikml1vp6v2sn6okjqdim6sehps2gsr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
