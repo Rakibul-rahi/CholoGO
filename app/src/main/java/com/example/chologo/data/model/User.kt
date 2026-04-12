@@ -1,4 +1,4 @@
-package com.example.chologo.model
+package com.example.chologo.data.model
 
 data class User(
     val uid: String = "",
@@ -9,5 +9,6 @@ data class User(
     val university: String = "AUST",
     val studentId: String = "",
     val homeLocation: String = "",
+    val xp: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
 )

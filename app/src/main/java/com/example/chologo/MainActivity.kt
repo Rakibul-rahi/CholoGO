@@ -48,7 +48,7 @@ fun MainAppEntry() {
                 when {
                     role.equals("passenger", ignoreCase = true) -> Screen.PassengerHome.route
                     role.equals("rider", ignoreCase = true) -> Screen.RiderHome.route
-                    else -> Screen.RoleSelection.route
+                    else -> Screen.AuthChoice.route
                 }
             } catch (e: Exception) {
                 Screen.RoleSelection.route
