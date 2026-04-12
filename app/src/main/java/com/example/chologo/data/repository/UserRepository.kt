@@ -1,6 +1,6 @@
 package com.example.chologo.repository
 
-import com.example.chologo.model.User
+import com.example.chologo.data.model.User
 import com.example.chologo.ui.auth.UserRole
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -19,7 +19,7 @@ class UserRepository {
         university: String,
         homeLocation: String,
         password: String,
-        onResult: (Result<String>) -> Unit
+        onResult: (Result<User>) -> Unit
     ) {
         auth.createUserWithEmailAndPassword(email, password)
             .addOnSuccessListener { authResult ->
@@ -40,14 +40,15 @@ class UserRepository {
                     role = roleString,
                     university = university,
                     studentId = studentId,
-                    homeLocation = homeLocation
+                    homeLocation = homeLocation,
+                    xp = 0L
                 )
 
                 db.collection("users")
                     .document(uid)
                     .set(user)
                     .addOnSuccessListener {
-                        onResult(Result.success(roleString))
+                        onResult(Result.success(user))
                     }
                     .addOnFailureListener { e ->
                         onResult(Result.failure(e))
@@ -61,7 +62,7 @@ class UserRepository {
     fun login(
         email: String,
         password: String,
-        onResult: (Result<String>) -> Unit
+        onResult: (Result<User>) -> Unit
     ) {
         auth.signInWithEmailAndPassword(email, password)
             .addOnSuccessListener { authResult ->
@@ -81,12 +82,12 @@ class UserRepository {
                             return@addOnSuccessListener
                         }
 
-                        val role = snapshot.getString("role")
+                        val user = snapshot.toObject(User::class.java)
 
-                        if (role.isNullOrBlank()) {
-                            onResult(Result.failure(Exception("Role not found")))
+                        if (user == null) {
+                            onResult(Result.failure(Exception("Failed to parse user data")))
                         } else {
-                            onResult(Result.success(role))
+                            onResult(Result.success(user))
                         }
                     }
                     .addOnFailureListener { e ->
@@ -128,5 +129,42 @@ class UserRepository {
             .addOnFailureListener { e ->
                 onResult(Result.failure(e))
             }
+    }
+
+    fun addXpToUser(
+        userId: String,
+        amount: Long,
+        onResult: (Result<Unit>) -> Unit
+    ) {
+        val userRef = db.collection("users").document(userId)
+
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(userRef)
+            val currentXp = snapshot.getLong("xp") ?: 0L
+            val newXp = currentXp + amount
+            transaction.update(userRef, "xp", newXp)
+        }.addOnSuccessListener {
+            onResult(Result.success(Unit))
+        }.addOnFailureListener { e ->
+            onResult(Result.failure(e))
+        }
+    }
+
+    fun addXpToCurrentUser(
+        amount: Long,
+        onResult: (Result<Unit>) -> Unit
+    ) {
+        val uid = auth.currentUser?.uid
+
+        if (uid == null) {
+            onResult(Result.failure(Exception("No logged in user")))
+            return
+        }
+
+        addXpToUser(uid, amount, onResult)
+    }
+
+    fun logout() {
+        auth.signOut()
     }
 }

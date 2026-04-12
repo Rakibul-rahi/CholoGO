@@ -1,4 +1,4 @@
-package com.example.chologo.model
+package com.example.chologo.data.model
 
 import com.google.firebase.Timestamp
 

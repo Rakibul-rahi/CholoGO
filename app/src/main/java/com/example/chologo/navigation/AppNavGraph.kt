@@ -9,12 +9,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.chologo.ui.auth.AuthChoiceScreen
+import com.example.chologo.ui.auth.ForgotPasswordScreen
 import com.example.chologo.ui.auth.LoginScreen
 import com.example.chologo.ui.auth.RoleSelectionScreen
 import com.example.chologo.ui.auth.SignupScreen
 import com.example.chologo.ui.passenger.PassengerDashboardScreen
 import com.example.chologo.ui.profile.ProfileScreen
 import com.example.chologo.ui.rider.RiderDashboardScreen
+import com.example.chologo.ui.rider.RiderRideNowScreen
 import com.example.chologo.viewmodel.AuthViewModel
 
 @Composable
@@ -73,13 +75,29 @@ fun AppNavGraph(startDestination: String) {
                 onLoginClick = { email, password ->
                     authViewModel.login(email, password)
                 },
+                onGoogleSignInClick = {
+                    // Add Google sign-in logic here later if needed
+                },
                 onSignupClick = {
                     navController.navigate(Screen.Signup.route) {
                         launchSingleTop = true
                     }
                 },
+                onForgotPasswordClick = {
+                    navController.navigate(Screen.ForgotPassword.route) {
+                        launchSingleTop = true
+                    }
+                },
                 isLoading = uiState.isLoading,
                 externalErrorMessage = uiState.errorMessage
+            )
+        }
+
+        composable(Screen.ForgotPassword.route) {
+            ForgotPasswordScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -136,6 +154,13 @@ fun AppNavGraph(startDestination: String) {
 
         composable(Screen.RiderHome.route) {
             RiderDashboardScreen(navController = navController)
+        }
+
+        composable(Screen.RiderRideNow.route) {
+            RiderRideNowScreen(
+                navController = navController,
+                authViewModel = authViewModel
+            )
         }
 
         composable(Screen.Profile.route) {

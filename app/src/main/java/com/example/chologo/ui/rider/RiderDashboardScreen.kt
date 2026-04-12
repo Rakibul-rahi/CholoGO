@@ -1,8 +1,16 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.example.chologo.ui.rider
 
+import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,37 +25,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -59,57 +55,25 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.chologo.R
-import com.example.chologo.model.Ride
-import com.example.chologo.model.RideRequest
+import com.example.chologo.data.model.Ride
+import com.example.chologo.data.model.RideRequest
 import com.example.chologo.navigation.Screen
+import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.components.LocalAdCarouselBanner
+import com.example.chologo.utils.LevelSystem
+import com.example.chologo.viewmodel.AuthViewModel
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
 import kotlin.math.abs
-
-private val BgDark = Color(0xFF0D1117)
-private val CardDark = Color(0xFF161B22)
-private val GreenPrimary = Color(0xFF8DC63F)
-private val GreenMuted = Color(0xFF2D3B2D)
-private val TextPrimary = Color(0xFFE6EDF3)
-private val TextSecondary = Color(0xFF8B949E)
-private val TextMuted = Color(0xFF6E7681)
-private val DotYellow = Color(0xFFF0C040)
-private val DotGreen = Color(0xFF39D353)
-private val CampusBlue = Color(0xFF58A6FF)
-private val SuccessCard = Color(0xFF102A1A)
-
-private val availableLocations = listOf(
-    "Lalbag",
-    "Mirpur 12",
-    "Mirpur 11",
-    "Mirpur 10",
-    "Kazipara",
-    "Taltola",
-    "Agargoan",
-    "Mohammadpur",
-    "Khilgaon",
-    "Dhanmondi",
-    "Jigatola",
-    "Azimpur",
-    "Gulshan Link Road",
-    "Kakrail Mor",
-    "AUST Gate"
-)
 
 data class MatchedRequestCardUi(
     val rideId: String,
@@ -123,19 +87,61 @@ data class MatchedRequestCardUi(
 )
 
 @Composable
-fun RiderDashboardScreen(navController: NavController) {
+fun RiderDashboardScreen(
+    navController: NavController,
+    authViewModel: AuthViewModel = viewModel()
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Requests", "Tomorrow Setup")
+    val tabs = listOf("Requests", "Tomorrow")
 
+    val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
+    val authState by authViewModel.uiState.collectAsState()
+
+    val userRepository = remember { UserRepository() }
+
+    var riderXp by remember { mutableStateOf(0L) }
+    var isLevelLoading by remember { mutableStateOf(true) }
+
     val savedRideList = remember { mutableStateListOf<Ride>() }
     val matchedRequestList = remember { mutableStateListOf<MatchedRequestCardUi>() }
-    val dismissedRequestIds = remember { mutableStateListOf<String>() }
     val processingRequestMap = remember { mutableStateMapOf<String, Boolean>() }
+
     val tomorrowDate = remember { getTomorrowDateKey() }
 
+    LaunchedEffect(Unit) {
+        authViewModel.loadCurrentUser()
+
+        userRepository.getCurrentUserData { result ->
+            result.onSuccess { user ->
+                riderXp = user.xp
+                isLevelLoading = false
+            }.onFailure {
+                riderXp = 0L
+                isLevelLoading = false
+            }
+        }
+    }
+
+    val levelInfo = remember(riderXp) {
+        LevelSystem.getLevelInfo(riderXp)
+    }
+
+    fun refreshRiderXp() {
+        userRepository.getCurrentUserData { result ->
+            result.onSuccess { user ->
+                riderXp = user.xp
+            }
+        }
+    }
+
     fun reloadMatchedRequests(rides: List<Ride>) {
+        val riderUid = auth.currentUser?.uid ?: run {
+            matchedRequestList.clear()
+            return
+        }
+
         if (rides.isEmpty()) {
             matchedRequestList.clear()
             return
@@ -146,30 +152,30 @@ fun RiderDashboardScreen(navController: NavController) {
             .whereEqualTo("status", "pending")
             .get()
             .addOnSuccessListener { result ->
-                val requests = result.documents.mapNotNull { doc ->
-                    doc.toObject(RideRequest::class.java)?.copy(requestId = doc.id)
+                val requests = result.documents.mapNotNull {
+                    it.toObject(RideRequest::class.java)?.copy(requestId = it.id)
                 }
 
                 val matched = mutableListOf<MatchedRequestCardUi>()
 
                 rides.forEach { ride ->
-                    requests.filter { request ->
+                    requests.filter { req ->
                         ride.status == "active" &&
                                 ride.availableSeats > 0 &&
-                                ride.routeKey == request.routeKey &&
-                                abs(ride.timeMinutes - request.timeMinutes) <= 30 &&
-                                !dismissedRequestIds.contains(request.requestId)
-                    }.forEach { request ->
+                                ride.routeKey == req.routeKey &&
+                                abs(ride.timeMinutes - req.timeMinutes) <= 30 &&
+                                !req.rejectedByRiderIds.contains(riderUid)
+                    }.forEach { req ->
                         matched.add(
                             MatchedRequestCardUi(
                                 rideId = ride.rideId,
-                                requestId = request.requestId,
-                                passengerName = if (request.passengerName.isBlank()) "Passenger" else request.passengerName,
-                                tripDirection = request.tripDirection,
-                                pickup = request.pickup,
-                                destination = request.destination,
-                                tripTime = request.tripTime,
-                                timeMinutes = request.timeMinutes
+                                requestId = req.requestId,
+                                passengerName = req.passengerName.ifBlank { "Passenger" },
+                                tripDirection = req.tripDirection,
+                                pickup = req.pickup,
+                                destination = req.destination,
+                                tripTime = req.tripTime,
+                                timeMinutes = req.timeMinutes
                             )
                         )
                     }
@@ -197,10 +203,10 @@ fun RiderDashboardScreen(navController: NavController) {
             .whereEqualTo("rideDate", tomorrowDate)
             .get()
             .addOnSuccessListener { result ->
-                val rides = result.documents.mapNotNull { doc ->
-                    doc.toObject(Ride::class.java)?.copy(rideId = doc.id)
+                val rides = result.documents.mapNotNull {
+                    it.toObject(Ride::class.java)?.copy(rideId = it.id)
                 }.sortedBy {
-                    when (it.tripDirection.lowercase(Locale.getDefault())) {
+                    when (it.tripDirection.lowercase()) {
                         "to_campus" -> 0
                         "to_home" -> 1
                         else -> 2
@@ -217,85 +223,93 @@ fun RiderDashboardScreen(navController: NavController) {
             }
     }
 
-    fun acceptMatchedRequest(card: MatchedRequestCardUi, onDone: () -> Unit) {
-        val riderUid = auth.currentUser?.uid
-        if (riderUid == null) {
-            onDone()
+    fun rejectMatchedRequest(
+        card: MatchedRequestCardUi,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        val uid = auth.currentUser?.uid ?: run {
+            onDone(false, "Not logged in")
+            return
+        }
+
+        if (card.requestId.isBlank()) {
+            onDone(false, "Invalid request")
+            return
+        }
+
+        db.collection("ride_requests").document(card.requestId)
+            .update("rejectedByRiderIds", FieldValue.arrayUnion(uid))
+            .addOnSuccessListener { onDone(true, "Request declined") }
+            .addOnFailureListener { onDone(false, it.message ?: "Failed") }
+    }
+
+    fun acceptMatchedRequest(
+        card: MatchedRequestCardUi,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        val uid = auth.currentUser?.uid ?: run {
+            onDone(false, "Not logged in")
             return
         }
 
         if (card.rideId.isBlank() || card.requestId.isBlank()) {
-            onDone()
+            onDone(false, "Invalid data")
             return
         }
+
+        val riderName = authState.userName.ifBlank { "Rider" }
+        val riderPhone = authState.userPhone.ifBlank { "N/A" }
 
         val rideRef = db.collection("rides").document(card.rideId)
         val requestRef = db.collection("ride_requests").document(card.requestId)
 
-        db.runTransaction { transaction ->
-            val rideSnap = transaction.get(rideRef)
-            val requestSnap = transaction.get(requestRef)
+        db.runTransaction { tx ->
+            val rideSnap = tx.get(rideRef)
+            val requestSnap = tx.get(requestRef)
 
-            if (!rideSnap.exists()) {
-                throw Exception("Ride not found")
-            }
+            if (!rideSnap.exists()) throw Exception("Ride not found")
+            if (!requestSnap.exists()) throw Exception("Request not found")
 
-            if (!requestSnap.exists()) {
-                throw Exception("Request not found")
-            }
+            val ride = rideSnap.toObject(Ride::class.java) ?: throw Exception("Invalid ride")
+            val req = requestSnap.toObject(RideRequest::class.java) ?: throw Exception("Invalid request")
 
-            val ride = rideSnap.toObject(Ride::class.java)
-                ?: throw Exception("Invalid ride data")
+            if (ride.riderId != uid) throw Exception("Not your ride")
+            if (ride.status != "active") throw Exception("Ride no longer active")
+            if (ride.availableSeats <= 0) throw Exception("No seats available")
+            if (req.status != "pending") throw Exception("Request already handled")
 
-            val request = requestSnap.toObject(RideRequest::class.java)
-                ?: throw Exception("Invalid request data")
+            val newSeats = ride.availableSeats - 1
 
-            val currentSeats = ride.availableSeats
-            val rideStatus = ride.status
-            val requestStatus = request.status
-
-            if (ride.riderId != riderUid) {
-                throw Exception("You can only accept with your own ride")
-            }
-
-            if (rideStatus != "active") {
-                throw Exception("Ride is no longer active")
-            }
-
-            if (requestStatus != "pending") {
-                throw Exception("Request is no longer pending")
-            }
-
-            if (currentSeats <= 0) {
-                throw Exception("No seats left")
-            }
-
-            val newSeats = currentSeats - 1
-            val newRideStatus = if (newSeats <= 0) "full" else "active"
-
-            transaction.update(
+            tx.update(
                 requestRef,
                 mapOf(
                     "status" to "accepted",
-                    "matchedRideId" to card.rideId,
-                    "matchedRiderId" to riderUid,
+                    "matchedRideId" to ride.rideId,
+                    "matchedRiderId" to uid,
+                    "matchedRiderName" to riderName,
+                    "matchedRiderPhone" to riderPhone,
+                    "matchedRideTime" to ride.tripTime,
                     "acceptedAt" to Timestamp.now()
                 )
             )
 
-            transaction.update(
+            tx.update(
                 rideRef,
                 mapOf(
                     "availableSeats" to newSeats,
-                    "status" to newRideStatus
+                    "status" to if (newSeats <= 0) "full" else "active"
                 )
             )
-        }.addOnSuccessListener {
-            dismissedRequestIds.remove(card.requestId)
-            onDone()
-        }.addOnFailureListener {
-            onDone()
         }
+            .addOnSuccessListener {
+                userRepository.addXpToCurrentUser(10L) { xpResult ->
+                    xpResult.onSuccess { refreshRiderXp() }
+                }
+                onDone(true, "Passenger accepted! (+10 XP)")
+            }
+            .addOnFailureListener {
+                onDone(false, it.message ?: "Failed")
+            }
     }
 
     LaunchedEffect(Unit) {
@@ -304,68 +318,103 @@ fun RiderDashboardScreen(navController: NavController) {
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = BgDark
+        color = BgDeep
     ) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 28.dp, bottom = 32.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 40.dp)
         ) {
             item { RiderTopBar(navController) }
-            item { LocalAdCarouselBanner() }
 
             item {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = BgDark,
-                    contentColor = GreenPrimary,
-                    divider = {}
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = {
-                                Text(
-                                    text = title,
-                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        )
-                    }
+                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    RiderHeroCard(
+                        riderName = authState.userName,
+                        levelInfo = levelInfo,
+                        isLevelLoading = isLevelLoading
+                    )
                 }
             }
 
+            item { Spacer(modifier = Modifier.height(10.dp)) }
+
             item {
-                when (selectedTab) {
-                    0 -> RiderRequestsTab(
-                        savedRideList = savedRideList,
-                        matchedRequestList = matchedRequestList,
-                        processingRequestMap = processingRequestMap,
-                        onAccept = { card ->
-                            val context = navController.context
-                            processingRequestMap[card.requestId] = true
+                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    LocalAdCarouselBanner()
+                }
+            }
 
-                            acceptMatchedRequest(card) {
-                                processingRequestMap[card.requestId] = false
-                                reloadSavedRides()
-                                Toast.makeText(context, "Request accepted", Toast.LENGTH_SHORT).show()
+            item { Spacer(modifier = Modifier.height(10.dp)) }
+
+            item {
+                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    RideNowEntryCard(
+                        onOpenRideNow = {
+                            navController.navigate(Screen.RiderRideNow.route) {
+                                launchSingleTop = true
                             }
-                        },
-                        onDecline = { card ->
-                            dismissedRequestIds.add(card.requestId)
-                            matchedRequestList.removeAll { it.requestId == card.requestId }
-                            Toast.makeText(navController.context, "Request declined", Toast.LENGTH_SHORT).show()
-                        },
-                        onRideRemoved = { reloadSavedRides() }
+                        }
                     )
+                }
+            }
 
-                    1 -> RiderTomorrowSetupTab(
-                        rideDate = tomorrowDate,
-                        onSaveSuccess = { reloadSavedRides() }
-                    )
+            item { Spacer(modifier = Modifier.height(8.dp)) }
+
+            item {
+                PremiumTabRow(
+                    tabs = tabs,
+                    selectedTab = selectedTab,
+                    onTabSelected = { selectedTab = it }
+                )
+            }
+
+            item { Spacer(modifier = Modifier.height(4.dp)) }
+
+            item {
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        fadeIn(tween(240)) + slideInVertically(tween(240)) { it / 16 } togetherWith
+                                fadeOut(tween(160))
+                    },
+                    label = "rider_tab_content"
+                ) { tab ->
+                    Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        when (tab) {
+                            0 -> RiderRequestsTab(
+                                savedRideList = savedRideList,
+                                matchedRequestList = matchedRequestList,
+                                processingRequestMap = processingRequestMap,
+                                onAccept = { card ->
+                                    processingRequestMap[card.requestId] = true
+                                    acceptMatchedRequest(card) { ok, msg ->
+                                        processingRequestMap[card.requestId] = false
+                                        if (ok) reloadSavedRides()
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onDecline = { card ->
+                                    processingRequestMap[card.requestId] = true
+                                    rejectMatchedRequest(card) { ok, msg ->
+                                        processingRequestMap[card.requestId] = false
+                                        if (ok) reloadSavedRides()
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onRideRemoved = { reloadSavedRides() }
+                            )
+
+                            1 -> RiderTomorrowSetupTab(
+                                rideDate = tomorrowDate,
+                                riderName = authState.userName,
+                                userRepository = userRepository,
+                                onSaveSuccess = {
+                                    refreshRiderXp()
+                                    reloadSavedRides()
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -373,7 +422,101 @@ fun RiderDashboardScreen(navController: NavController) {
 }
 
 @Composable
-private fun RiderRequestsTab(
+fun RideNowEntryCard(
+    onOpenRideNow: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = BorderStroke(1.dp, BorderFocus)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFF1A2233), Color(0xFF111A24))
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(88.dp)
+                    .align(Alignment.CenterStart)
+                    .background(
+                        GradientLime,
+                        RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)
+                    )
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Ride Now",
+                        color = TextHigh,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Go live and manage instant ride requests from a separate page.",
+                        color = TextMed
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    MiniBadge(
+                        text = "Instant matching",
+                        accent = AccentAmber
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(GradientLime)
+                        .clickable { onOpenRideNow() }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FlashOn,
+                            contentDescription = null,
+                            tint = BgDeep,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Open",
+                            color = BgDeep,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RiderRequestsTab(
     savedRideList: SnapshotStateList<Ride>,
     matchedRequestList: SnapshotStateList<MatchedRequestCardUi>,
     processingRequestMap: Map<String, Boolean>,
@@ -384,17 +527,17 @@ private fun RiderRequestsTab(
     val db = FirebaseFirestore.getInstance()
     val context = LocalContext.current
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            text = "MATCHED PASSENGER REQUESTS",
-            color = TextMuted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.5.sp
-        )
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(top = 20.dp)
+    ) {
+        SectionLabel(text = "Passenger Matches")
 
         if (matchedRequestList.isEmpty()) {
-            EmptyRequestCard("No matched passenger requests right now.")
+            EmptyStateCard(
+                icon = Icons.Default.DirectionsCar,
+                message = "No matched requests right now.\nCheck back after setting up your tomorrow ride."
+            )
         } else {
             matchedRequestList.forEach { request ->
                 MatchedRequestCard(
@@ -406,18 +549,14 @@ private fun RiderRequestsTab(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "YOUR SAVED TOMORROW RIDES",
-            color = TextMuted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.5.sp
-        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SectionLabel(text = "Saved Tomorrow Rides")
 
         if (savedRideList.isEmpty()) {
-            EmptyRequestCard("No saved rider setup right now.")
+            EmptyStateCard(
+                icon = Icons.Default.DirectionsCar,
+                message = "No rides saved yet.\nHead to the Tomorrow tab to set up your schedule."
+            )
         } else {
             savedRideList.forEach { ride ->
                 SavedRideCard(
@@ -425,17 +564,15 @@ private fun RiderRequestsTab(
                     onRemove = {
                         if (ride.rideId.isBlank()) return@SavedRideCard
 
-                        db.collection("rides")
-                            .document(ride.rideId)
-                            .delete()
+                        db.collection("rides").document(ride.rideId).delete()
                             .addOnSuccessListener {
-                                Toast.makeText(context, "Saved ride removed", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Ride removed", Toast.LENGTH_SHORT).show()
                                 onRideRemoved()
                             }
                             .addOnFailureListener { e ->
                                 Toast.makeText(
                                     context,
-                                    "Failed to remove: ${e.message}",
+                                    "Failed: ${e.message}",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
@@ -444,297 +581,12 @@ private fun RiderRequestsTab(
             }
         }
 
-        RiderBannerCard("Set your tomorrow campus and return schedule to match more passengers")
+        InfoBannerCard("Ride Now has been moved to its own page. Tomorrow rides stay here.")
     }
 }
 
 @Composable
-private fun RiderTomorrowSetupTab(
-    rideDate: String,
-    onSaveSuccess: () -> Unit
-) {
-    val context = LocalContext.current
-    val db = FirebaseFirestore.getInstance()
-    val auth = FirebaseAuth.getInstance()
-
-    var campusPickupLocation by remember { mutableStateOf("Mirpur 12") }
-    var homeReturnLocation by remember { mutableStateOf("Mirpur 12") }
-
-    var showCampusPickupMenu by remember { mutableStateOf(false) }
-    var showHomeReturnMenu by remember { mutableStateOf(false) }
-
-    var campusHour by remember { mutableIntStateOf(8) }
-    var campusMinute by remember { mutableIntStateOf(0) }
-
-    var homeHour by remember { mutableIntStateOf(15) }
-    var homeMinute by remember { mutableIntStateOf(30) }
-
-    var showCampusTimePicker by remember { mutableStateOf(false) }
-    var showHomeTimePicker by remember { mutableStateOf(false) }
-
-    var isSaving by remember { mutableStateOf(false) }
-    var isLoadingPlan by remember { mutableStateOf(true) }
-    var isPlanSubmitted by remember { mutableStateOf(false) }
-    var isEditing by remember { mutableStateOf(false) }
-    var submittedDateText by remember { mutableStateOf("") }
-
-    val campusTimeText = formatTo12Hour(campusHour, campusMinute)
-    val homeTimeText = formatTo12Hour(homeHour, homeMinute)
-
-    LaunchedEffect(Unit) {
-        val riderUid = auth.currentUser?.uid
-        if (riderUid == null) {
-            isLoadingPlan = false
-            isEditing = true
-            return@LaunchedEffect
-        }
-
-        db.collection("rides")
-            .whereEqualTo("riderId", riderUid)
-            .whereEqualTo("rideDate", rideDate)
-            .get()
-            .addOnSuccessListener { result ->
-                var foundCampus = false
-                var foundHome = false
-                var foundDate: String? = null
-
-                result.documents.forEach { doc ->
-                    val ride = doc.toObject(Ride::class.java)?.copy(rideId = doc.id) ?: return@forEach
-
-                    if (ride.createdAt != null && foundDate == null) {
-                        foundDate = formatTimestampToDate(ride.createdAt)
-                    }
-
-                    when (ride.tripDirection.lowercase(Locale.getDefault())) {
-                        "to_campus" -> {
-                            campusPickupLocation = if (ride.pickup.isNotBlank()) ride.pickup else "Mirpur 12"
-                            if (ride.timeMinutes > 0) {
-                                campusHour = ride.timeMinutes / 60
-                                campusMinute = ride.timeMinutes % 60
-                            } else {
-                                parse12HourTime(ride.tripTime)?.let { (h, m) ->
-                                    campusHour = h
-                                    campusMinute = m
-                                }
-                            }
-                            foundCampus = true
-                        }
-
-                        "to_home" -> {
-                            homeReturnLocation = if (ride.destination.isNotBlank()) ride.destination else "Mirpur 12"
-                            if (ride.timeMinutes > 0) {
-                                homeHour = ride.timeMinutes / 60
-                                homeMinute = ride.timeMinutes % 60
-                            } else {
-                                parse12HourTime(ride.tripTime)?.let { (h, m) ->
-                                    homeHour = h
-                                    homeMinute = m
-                                }
-                            }
-                            foundHome = true
-                        }
-                    }
-                }
-
-                submittedDateText = foundDate ?: rideDate
-                isPlanSubmitted = foundCampus || foundHome
-                isEditing = !(foundCampus || foundHome)
-                isLoadingPlan = false
-            }
-            .addOnFailureListener {
-                isLoadingPlan = false
-                isEditing = true
-            }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        when {
-            isLoadingPlan -> {
-                LoadingCard("Loading tomorrow plan...")
-            }
-
-            isPlanSubmitted && !isEditing -> {
-                TomorrowPlanSubmittedCard(
-                    campusPickup = campusPickupLocation,
-                    campusTime = campusTimeText,
-                    returnLocation = homeReturnLocation,
-                    returnTime = homeTimeText,
-                    submittedDate = submittedDateText,
-                    onEditClick = { isEditing = true }
-                )
-            }
-
-            else -> {
-                InfoMessageCard(
-                    title = "Tomorrow Ride Setup",
-                    message = "Set your to-campus and return-home ride. Date, route key, and time minutes will be saved for matching."
-                )
-
-                LocationSelectionCard(
-                    title = "Pickup location for going to campus",
-                    selectedLocation = campusPickupLocation,
-                    expanded = showCampusPickupMenu,
-                    onExpandChange = { showCampusPickupMenu = it },
-                    locations = availableLocations,
-                    onLocationSelected = {
-                        campusPickupLocation = it
-                        showCampusPickupMenu = false
-                    }
-                )
-
-                TimeOnlyCard(
-                    title = "To Campus Schedule",
-                    timeLabel = "Departure Time",
-                    selectedTimeText = campusTimeText,
-                    onPickTimeClick = { showCampusTimePicker = true }
-                )
-
-                LocationSelectionCard(
-                    title = "Destination location when returning home",
-                    selectedLocation = homeReturnLocation,
-                    expanded = showHomeReturnMenu,
-                    onExpandChange = { showHomeReturnMenu = it },
-                    locations = availableLocations,
-                    onLocationSelected = {
-                        homeReturnLocation = it
-                        showHomeReturnMenu = false
-                    }
-                )
-
-                TimeOnlyCard(
-                    title = "Return Home Schedule",
-                    timeLabel = "Departure Time",
-                    selectedTimeText = homeTimeText,
-                    onPickTimeClick = { showHomeTimePicker = true }
-                )
-
-                Button(
-                    onClick = {
-                        val riderUid = auth.currentUser?.uid
-                        if (riderUid == null) {
-                            Toast.makeText(context, "User not logged in", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        isSaving = true
-                        val now = Timestamp.now()
-
-                        val campusRideRef = db.collection("rides").document()
-                        val homeRideRef = db.collection("rides").document()
-
-                        val campusRide = Ride(
-                            rideId = campusRideRef.id,
-                            riderId = riderUid,
-                            riderName = "",
-                            tripDirection = "to_campus",
-                            pickup = campusPickupLocation,
-                            destination = "AUST Gate",
-                            tripTime = campusTimeText,
-                            timeMinutes = toMinutes(campusHour, campusMinute),
-                            routeKey = buildRouteKey("to_campus", campusPickupLocation, "AUST Gate"),
-                            rideDate = rideDate,
-                            availableSeats = 1,
-                            status = "active",
-                            isTomorrowSetup = true,
-                            createdAt = now
-                        )
-
-                        val returnRide = Ride(
-                            rideId = homeRideRef.id,
-                            riderId = riderUid,
-                            riderName = "",
-                            tripDirection = "to_home",
-                            pickup = "AUST Gate",
-                            destination = homeReturnLocation,
-                            tripTime = homeTimeText,
-                            timeMinutes = toMinutes(homeHour, homeMinute),
-                            routeKey = buildRouteKey("to_home", "AUST Gate", homeReturnLocation),
-                            rideDate = rideDate,
-                            availableSeats = 1,
-                            status = "active",
-                            isTomorrowSetup = true,
-                            createdAt = now
-                        )
-
-                        db.collection("rides")
-                            .whereEqualTo("riderId", riderUid)
-                            .whereEqualTo("rideDate", rideDate)
-                            .get()
-                            .addOnSuccessListener { result ->
-                                val batch = db.batch()
-
-                                result.documents.forEach { doc ->
-                                    batch.delete(doc.reference)
-                                }
-
-                                batch.set(campusRideRef, campusRide)
-                                batch.set(homeRideRef, returnRide)
-
-                                batch.commit()
-                                    .addOnSuccessListener {
-                                        isSaving = false
-                                        isPlanSubmitted = true
-                                        isEditing = false
-                                        submittedDateText = rideDate
-                                        onSaveSuccess()
-                                        Toast.makeText(context, "Tomorrow setup saved", Toast.LENGTH_SHORT).show()
-                                    }
-                                    .addOnFailureListener { e ->
-                                        isSaving = false
-                                        Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                            }
-                            .addOnFailureListener { e ->
-                                isSaving = false
-                                Toast.makeText(context, "Failed to load previous rides: ${e.message}", Toast.LENGTH_LONG).show()
-                            }
-                    },
-                    enabled = !isSaving,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(
-                        text = if (isSaving) "Saving..." else if (isPlanSubmitted) "Update Tomorrow Setup" else "Save Tomorrow Setup",
-                        color = BgDark,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-    }
-
-    if (showCampusTimePicker) {
-        RiderTimePickerDialog(
-            initialHour = campusHour,
-            initialMinute = campusMinute,
-            onDismiss = { showCampusTimePicker = false },
-            onConfirm = { hour, minute ->
-                campusHour = hour
-                campusMinute = minute
-                showCampusTimePicker = false
-            }
-        )
-    }
-
-    if (showHomeTimePicker) {
-        RiderTimePickerDialog(
-            initialHour = homeHour,
-            initialMinute = homeMinute,
-            onDismiss = { showHomeTimePicker = false },
-            onConfirm = { hour, minute ->
-                homeHour = hour
-                homeMinute = minute
-                showHomeTimePicker = false
-            }
-        )
-    }
-}
-
-@Composable
-private fun MatchedRequestCard(
+fun MatchedRequestCard(
     request: MatchedRequestCardUi,
     isProcessing: Boolean,
     onAccept: () -> Unit,
@@ -742,638 +594,254 @@ private fun MatchedRequestCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = BorderStroke(1.dp, BorderFocus)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = request.passengerName,
-                color = TextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "${request.pickup} → ${request.destination}",
-                color = TextSecondary
-            )
-
-            Text(
-                text = request.tripTime,
-                color = TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onAccept,
-                    enabled = !isProcessing,
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                ) {
-                    Text(
-                        text = if (isProcessing) "Processing..." else "Accept",
-                        color = BgDark,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onDecline,
-                    enabled = !isProcessing,
-                    border = BorderStroke(1.dp, TextMuted),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                ) {
-                    Text("Decline", color = TextSecondary)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LoadingCard(text: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                color = GreenPrimary,
-                strokeWidth = 2.5.dp
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(text = text, color = TextPrimary)
-        }
-    }
-}
-
-@Composable
-private fun TomorrowPlanSubmittedCard(
-    campusPickup: String,
-    campusTime: String,
-    returnLocation: String,
-    returnTime: String,
-    submittedDate: String,
-    onEditClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = SuccessCard),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.DirectionsCar,
-                    contentDescription = "Submitted",
-                    tint = GreenPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Tomorrow riding plan is submitted",
-                    color = GreenPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (submittedDate.isNotBlank()) {
-                Text(
-                    text = "Date: $submittedDate",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            Text(
-                text = "To Campus: $campusPickup → AUST Gate at $campusTime",
-                color = TextPrimary,
-                fontSize = 14.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "To Home: AUST Gate → $returnLocation at $returnTime",
-                color = TextPrimary,
-                fontSize = 14.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Available seat: 1",
-                color = TextSecondary,
-                fontSize = 13.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            OutlinedButton(
-                onClick = onEditClick,
-                border = BorderStroke(1.dp, TextMuted),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(42.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Edit",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Edit",
-                    color = TextSecondary,
-                    fontSize = 14.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RiderTopBar(navController: NavController) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 20.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.chologologo),
-            contentDescription = "CholoGO Logo",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .height(120.dp)
-                .wrapContentWidth()
-        )
-
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(GreenPrimary)
-                .clickable {
-                    navController.navigate(Screen.Profile.createRoute("rider")) {
-                        launchSingleTop = true
-                    }
-                },
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .background(GradientCard)
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "Profile",
-                tint = BgDark,
-                modifier = Modifier.size(24.dp)
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(100.dp)
+                    .align(Alignment.CenterStart)
+                    .background(
+                        GradientLime,
+                        RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)
+                    )
             )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(LimeDim),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                tint = Lime,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Column {
+                            Text(
+                                text = request.passengerName,
+                                color = TextHigh,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = request.tripTime,
+                                color = TextMed
+                            )
+                        }
+                    }
+
+                    DirectionBadge(request.tripDirection)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "${request.pickup} → ${request.destination}",
+                    color = TextMed,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                brush = if (isProcessing) {
+                                    Brush.linearGradient(listOf(LimeDim, LimeDim))
+                                } else {
+                                    GradientLime
+                                }
+                            )
+                            .clickable(enabled = !isProcessing) { onAccept() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isProcessing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = BgDeep,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = BgDeep,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Accept",
+                                    color = BgDeep,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CardElevated)
+                            .clickable(enabled = !isProcessing) { onDecline() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = null,
+                                tint = TextMed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Decline",
+                                color = TextMed,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun SavedRideCard(
+fun SavedRideCard(
     ride: Ride,
     onRemove: () -> Unit
 ) {
+    val isCampus = ride.tripDirection.equals("to_campus", ignoreCase = true)
+    val accentColor = if (isCampus) AccentBlue else AccentEmerald
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = SuccessCard)
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.25f))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column {
-                    Text(
-                        text = when (ride.tripDirection) {
-                            "to_campus" -> "To Campus"
-                            "to_home" -> "To Home"
-                            else -> "Saved Ride"
-                        },
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            if (isCampus) Color(0xFF101A2E) else Color(0xFF0C2018),
+                            CardBase
+                        )
                     )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = "${ride.pickup} → ${ride.destination}",
-                        color = TextSecondary,
-                        fontSize = 13.sp
+                )
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(80.dp)
+                    .align(Alignment.CenterStart)
+                    .background(
+                        accentColor,
+                        RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)
                     )
-                }
-
-                DirectionChip(ride.tripDirection)
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = GreenMuted, thickness = 1.dp)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(DotYellow)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = ride.tripTime.ifBlank { "No time set" },
-                    color = TextPrimary,
-                    fontSize = 13.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(DotGreen)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Available seat: ${ride.availableSeats}",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Date: ${ride.rideDate}",
-                color = TextSecondary,
-                fontSize = 13.sp
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Status: ${ride.status}",
-                color = TextSecondary,
-                fontSize = 13.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            OutlinedButton(
-                onClick = onRemove,
-                border = BorderStroke(1.dp, TextMuted),
-                shape = RoundedCornerShape(10.dp),
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
+                    .padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)
             ) {
-                Text(
-                    text = "Remove Saved Setup",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DirectionChip(direction: String) {
-    val chipColor = if (direction.equals("to_campus", ignoreCase = true)) {
-        CampusBlue
-    } else {
-        GreenPrimary
-    }
-
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(chipColor)
-            .padding(horizontal = 10.dp, vertical = 5.dp)
-    ) {
-        Text(
-            text = when (direction) {
-                "to_campus" -> "To Campus"
-                "to_home" -> "To Home"
-                else -> "Ride"
-            },
-            color = BgDark,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-private fun EmptyRequestCard(text: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
-
-@Composable
-private fun LocationSelectionCard(
-    title: String,
-    selectedLocation: String,
-    expanded: Boolean,
-    onExpandChange: (Boolean) -> Unit,
-    locations: List<String>,
-    onLocationSelected: (String) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                color = TextPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Box {
-                OutlinedButton(
-                    onClick = { onExpandChange(true) },
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(selectedLocation)
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Select Location"
+                    Column {
+                        Text(
+                            text = when (ride.tripDirection) {
+                                "to_campus" -> "To Campus"
+                                "to_home" -> "To Home"
+                                else -> "Saved Ride"
+                            },
+                            color = TextHigh,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "${ride.pickup} → ${ride.destination}",
+                            color = TextMed
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = ride.tripTime,
+                            color = TextMed
                         )
                     }
-                }
 
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { onExpandChange(false) }
-                ) {
-                    locations.forEach { location ->
-                        DropdownMenuItem(
-                            text = { Text(location) },
-                            onClick = { onLocationSelected(location) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TimeOnlyCard(
-    title: String,
-    timeLabel: String,
-    selectedTimeText: String,
-    onPickTimeClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                color = TextPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedButton(
-                onClick = onPickTimeClick,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = "Departure Time"
+                    MiniBadge(
+                        text = ride.status.replaceFirstChar { it.uppercase() },
+                        accent = when (ride.status.lowercase()) {
+                            "active" -> AccentEmerald
+                            "full" -> AccentAmber
+                            else -> AccentRed
+                        }
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("$timeLabel: $selectedTimeText")
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(CardElevated)
+                        .clickable { onRemove() }
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = "Remove",
+                        color = AccentRed,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "Available seat: 1",
-                color = TextSecondary,
-                fontSize = 13.sp
-            )
         }
     }
-}
-
-@Composable
-private fun InfoMessageCard(
-    title: String,
-    message: String
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = SuccessCard),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                color = GreenPrimary,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = message,
-                color = TextPrimary
-            )
-        }
-    }
-}
-
-@Composable
-private fun RiderBannerCard(text: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = SuccessCard)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 14.dp, horizontal = 16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.DirectionsCar,
-                    contentDescription = "Ride Banner",
-                    tint = GreenPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = text,
-                    color = GreenPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RiderTimePickerDialog(
-    initialHour: Int,
-    initialMinute: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (Int, Int) -> Unit
-) {
-    val timePickerState = rememberTimePickerState(
-        initialHour = initialHour,
-        initialMinute = initialMinute,
-        is24Hour = false
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(timePickerState.hour, timePickerState.minute) }
-            ) {
-                Text("OK")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Select time",
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                TimePicker(state = timePickerState)
-            }
-        }
-    )
-}
-
-private fun formatTo12Hour(hour: Int, minute: Int): String {
-    val amPm = if (hour < 12) "AM" else "PM"
-    val hour12 = when {
-        hour == 0 -> 12
-        hour > 12 -> hour - 12
-        else -> hour
-    }
-    return String.format(Locale.getDefault(), "%d:%02d %s", hour12, minute, amPm)
-}
-
-private fun parse12HourTime(time: String): Pair<Int, Int>? {
-    return try {
-        val parts = time.trim().split(" ")
-        if (parts.size != 2) return null
-        val hm = parts[0].split(":")
-        if (hm.size != 2) return null
-
-        val rawHour = hm[0].toInt()
-        val minute = hm[1].toInt()
-        val amPm = parts[1].uppercase(Locale.getDefault())
-
-        val hour24 = when {
-            amPm == "AM" && rawHour == 12 -> 0
-            amPm == "AM" -> rawHour
-            amPm == "PM" && rawHour == 12 -> 12
-            amPm == "PM" -> rawHour + 12
-            else -> return null
-        }
-        Pair(hour24, minute)
-    } catch (_: Exception) {
-        null
-    }
-}
-
-private fun formatTimestampToDate(timestamp: Timestamp): String {
-    val formatter = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-    return formatter.format(timestamp.toDate())
-}
-
-private fun toMinutes(hour: Int, minute: Int): Int {
-    return hour * 60 + minute
-}
-
-private fun buildRouteKey(
-    tripDirection: String,
-    pickup: String,
-    destination: String
-): String {
-    return "${tripDirection.trim().lowercase()}|${pickup.trim().lowercase()}|${destination.trim().lowercase()}"
-}
-
-private fun getTomorrowDateKey(): String {
-    val calendar = Calendar.getInstance()
-    calendar.add(Calendar.DAY_OF_YEAR, 1)
-    val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    return formatter.format(calendar.time)
 }
