@@ -498,7 +498,7 @@ Before running this project, make sure you have installed:
 
 
 
-**Live Project Link:** Not deployed yet
+**Live Project Link:** https://appetize.io/app/b_jg6uxuzyfrukxtqt7p5tt2vhui
 
 **APK Link:** Not added yet
 
