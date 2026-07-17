@@ -12,4 +12,7 @@ sealed class Screen(val route: String) {
     data object Profile : Screen("profile/{source}") {
         fun createRoute(source: String): String = "profile/$source"
     }
+    data object RideHistory : Screen("ride_history/{source}") {
+        fun createRoute(source: String): String = "ride_history/$source"
+    }
 }

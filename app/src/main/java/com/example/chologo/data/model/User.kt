@@ -10,5 +10,8 @@ data class User(
     val studentId: String = "",
     val homeLocation: String = "",
     val xp: Long = 0L,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val ratingAverage: Double = 0.0,
+    val ratingCount: Int = 0,
+    val reportCount: Int = 0
 )

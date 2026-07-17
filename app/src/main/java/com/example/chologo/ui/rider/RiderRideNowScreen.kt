@@ -2,39 +2,42 @@
 
 package com.example.chologo.ui.rider
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TwoWheeler
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,21 +50,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.chologo.R
 import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
+
+private fun openDialer(context: Context, phoneNumber: String) {
+    if (phoneNumber.isBlank() || phoneNumber == "N/A") {
+        Toast.makeText(context, "Phone number not available", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val intent = Intent(Intent.ACTION_DIAL).apply {
+        data = Uri.parse("tel:$phoneNumber")
+    }
+
+    context.startActivity(intent)
+}
 
 @Composable
 fun RiderRideNowScreen(
@@ -70,6 +85,7 @@ fun RiderRideNowScreen(
     rideNowViewModel: RideNowViewModel = viewModel()
 ) {
     val context = LocalContext.current
+
     val authState by authViewModel.uiState.collectAsState()
     val uiState by rideNowViewModel.uiState.collectAsState()
 
@@ -100,426 +116,658 @@ fun RiderRideNowScreen(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = BgDeep
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 36.dp)
-        ) {
-            item {
-                RiderRideNowTopBar(navController = navController)
-            }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    RiderRideNowHeroCard(
-                        riderName = authState.userName,
-                        isLive = uiState.isRiderLive,
-                        isBusy = !uiState.riderLiveRide?.currentRequestId.isNullOrBlank()
-                    )
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(14.dp)) }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionCard(
-                        title = "Route Selection",
-                        subtitle = "Choose where you are starting from and where you are going before going live."
-                    ) {
-                        LocationSelectionCard(
-                            label = "Pickup location",
-                            selectedLocation = selectedPickup,
-                            expanded = showPickupMenu,
-                            onExpandChange = { expandedValue ->
-                                showPickupMenu = expandedValue
-                            },
-                            locations = availableLocations,
-                            onLocationSelected = { selectedValue ->
-                                selectedPickup = selectedValue
-
-                                if (selectedDestination == selectedValue) {
-                                    selectedDestination =
-                                        availableLocations.firstOrNull { location ->
-                                            location != selectedValue
-                                        } ?: "Dhanmondi"
-                                }
-
-                                showPickupMenu = false
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        LocationSelectionCard(
-                            label = "Destination",
-                            selectedLocation = selectedDestination,
-                            expanded = showDestinationMenu,
-                            onExpandChange = { expandedValue ->
-                                showDestinationMenu = expandedValue
-                            },
-                            locations = availableLocations.filter { location ->
-                                location != selectedPickup
-                            },
-                            onLocationSelected = { selectedValue ->
-                                selectedDestination = selectedValue
-                                showDestinationMenu = false
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        RideNowInfoBanner(
-                            message = "Only passengers requesting this same route will appear in your live request list."
-                        )
-                    }
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(14.dp)) }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    RiderLiveControlCard(
-                        uiState = uiState,
-                        riderId = authState.userId,
-                        riderName = authState.userName,
-                        selectedPickup = selectedPickup,
-                        selectedDestination = selectedDestination,
-                        onGoLive = {
-                            if (selectedPickup == selectedDestination) {
-                                Toast.makeText(
-                                    context,
-                                    "Pickup and destination cannot be the same",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@RiderLiveControlCard
-                            }
-
-                            val tripDirection =
-                                if (selectedDestination.equals("AUST Gate", ignoreCase = true)) {
-                                    "to_campus"
-                                } else {
-                                    "to_home"
-                                }
-
-                            rideNowViewModel.goLiveAsRider(
-                                riderId = authState.userId,
-                                riderName = authState.userName.ifBlank { "Rider" },
-                                pickup = selectedPickup,
-                                destination = selectedDestination,
-                                tripDirection = tripDirection,
-                                tripTime = "Now",
-                                timeMinutes = 0,
-                                routeKey = buildRouteKey(
-                                    tripDirection = tripDirection,
-                                    pickup = selectedPickup,
-                                    destination = selectedDestination
-                                ),
-                                availableSeats = 1
-                            )
-                        },
-                        onStopLive = {
-                            rideNowViewModel.stopLiveRide()
-                        }
-                    )
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(14.dp)) }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    if (
-                        uiState.riderLiveRide?.currentRequestId?.isNotBlank() == true &&
-                        passengerRequest != null
-                    ) {
-                        ActiveRideNowTripCard(
-                            request = passengerRequest,
-                            onStartTrip = { rideNowViewModel.startRideNowTrip() },
-                            onCompleteTrip = { rideNowViewModel.completeRideNowTrip() }
-                        )
-                    } else {
-                        RideNowInfoBanner(
-                            message = "Go live on your selected route to start receiving instant passenger requests."
-                        )
-                    }
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(14.dp)) }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionLabel(text = "Live Passenger Requests")
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(8.dp)) }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    when {
-                        uiState.isLoading && availableRequests.isEmpty() -> {
-                            PremiumLoadingCard("Loading Ride Now data...")
-                        }
-
-                        !uiState.isRiderLive -> {
-                            EmptyStateCard(
-                                icon = Icons.Default.DirectionsCar,
-                                message = "You are offline.\nSelect a route and tap Go Live to receive matching passenger requests."
-                            )
-                        }
-
-                        availableRequests.isEmpty() -> {
-                            EmptyStateCard(
-                                icon = Icons.Default.Person,
-                                message = "No live passenger requests for this route right now.\nStay online and new requests will appear here."
-                            )
-                        }
-
-                        else -> {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                availableRequests.forEach { request ->
-                                    RideNowPassengerRequestCard(
-                                        request = request,
-                                        isProcessing = uiState.isLoading,
-                                        onAccept = {
-                                            rideNowViewModel.acceptRideNowRequest(
-                                                requestId = request.requestId,
-                                                riderId = authState.userId,
-                                                riderName = authState.userName.ifBlank { "Rider" },
-                                                riderPhone = authState.userPhone.ifBlank { "N/A" }
-                                            )
-                                            rideNowViewModel.listenToPassengerRequest(request.requestId)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    RideNowInfoBanner(
-                        message = "Ride Now is for instant requests. Tomorrow rides are still managed from the main rider dashboard."
-                    )
-                }
-            }
+    fun goLive() {
+        if (selectedPickup == selectedDestination) {
+            Toast.makeText(
+                context,
+                "Pickup and destination cannot be the same",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
         }
+
+        if (authState.userId.isBlank()) {
+            Toast.makeText(
+                context,
+                "Rider profile not loaded yet. Please try again.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val tripDirection =
+            if (selectedDestination.equals("AUST Gate", ignoreCase = true)) {
+                "to_campus"
+            } else {
+                "to_home"
+            }
+
+        rideNowViewModel.goLiveAsRider(
+            riderId = authState.userId,
+            riderName = authState.userName.ifBlank { "Rider" },
+            pickup = selectedPickup,
+            destination = selectedDestination,
+            tripDirection = tripDirection,
+            tripTime = "Now",
+            timeMinutes = 0,
+            routeKey = buildRouteKey(
+                tripDirection = tripDirection,
+                pickup = selectedPickup,
+                destination = selectedDestination
+            ),
+            availableSeats = 1
+        )
     }
-}
 
-@Composable
-fun RiderRideNowTopBar(
-    navController: NavController
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(BgSurface, BgDeep)))
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier = Modifier.padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(CardElevated)
-                    .clickable { navController.popBackStack() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = TextHigh,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        RiderRideNowIntroCard(
+            riderName = authState.userName,
+            isLive = uiState.isRiderLive,
+            isBusy = uiState.riderLiveRide?.currentRequestId?.isNotBlank() == true
+        )
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column {
-                Text(
-                    text = "Ride Now",
-                    color = TextHigh,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+        RiderSectionCard(
+            title = "Ride Now",
+            subtitle = "Go live, receive instant passenger requests, and manage your active trip.",
+            icon = "⚡"
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MiniBadge(
+                    text = if (uiState.isRiderLive) "Live now" else "Offline",
+                    accent = if (uiState.isRiderLive) AccentEmerald else AccentRed
                 )
-                Text(
-                    text = "Instant rider mode",
-                    color = TextMed,
-                    fontSize = 13.sp
+                MiniBadge(
+                    text = "Instant requests",
+                    accent = AccentBlue
                 )
             }
         }
 
-        Image(
-            painter = painterResource(id = R.drawable.chologologo),
-            contentDescription = "CholoGO",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .height(48.dp)
-                .wrapContentWidth()
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn() + slideInVertically { it / 6 },
+            exit = fadeOut()
+        ) {
+            RiderRideNowMainContent(
+                uiState = uiState,
+                passengerRequest = passengerRequest,
+                availableRequests = availableRequests,
+                riderId = authState.userId,
+                riderName = authState.userName,
+                riderPhone = authState.userPhone,
+                selectedPickup = selectedPickup,
+                selectedDestination = selectedDestination,
+                showPickupMenu = showPickupMenu,
+                showDestinationMenu = showDestinationMenu,
+                onPickupExpandChange = {
+                    showPickupMenu = it
+                },
+                onDestinationExpandChange = {
+                    showDestinationMenu = it
+                },
+                onPickupSelected = { selectedValue ->
+                    selectedPickup = selectedValue
+
+                    if (selectedDestination == selectedValue) {
+                        selectedDestination =
+                            availableLocations.firstOrNull { location ->
+                                location != selectedValue
+                            } ?: "Dhanmondi"
+                    }
+
+                    showPickupMenu = false
+                },
+                onDestinationSelected = { selectedValue ->
+                    selectedDestination = selectedValue
+                    showDestinationMenu = false
+                },
+                onGoLive = {
+                    goLive()
+                },
+                onStopLive = {
+                    rideNowViewModel.stopLiveRide()
+                },
+                onAcceptRequest = { request ->
+                    rideNowViewModel.acceptRideNowRequest(
+                        requestId = request.requestId,
+                        riderId = authState.userId,
+                        riderName = authState.userName.ifBlank { "Rider" },
+                        riderPhone = authState.userPhone.ifBlank { "N/A" }
+                    )
+
+                    rideNowViewModel.listenToPassengerRequest(request.requestId)
+                },
+                onStartTrip = {
+                    rideNowViewModel.startRideNowTrip()
+                },
+                onCompleteTrip = {
+                    rideNowViewModel.completeRideNowTrip()
+                },
+                onCancelRide = {
+                    Toast.makeText(
+                        context,
+                        "Accepted Ride Now trip cannot be cancelled from here yet.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                onCallPassenger = {
+                    Toast.makeText(
+                        context,
+                        "Passenger phone is not available in RideNowRequest yet.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
+        }
+
+        RideNowInfoBanner(
+            message = "Ride Now is for instant requests. Tomorrow rides are still managed from the main rider dashboard."
         )
     }
 }
 
 @Composable
-fun RiderRideNowHeroCard(
+private fun RiderRideNowMainContent(
+    uiState: RideNowUiState,
+    passengerRequest: RideNowRequest?,
+    availableRequests: List<RideNowRequest>,
+    riderId: String,
     riderName: String,
-    isLive: Boolean,
-    isBusy: Boolean
+    riderPhone: String,
+    selectedPickup: String,
+    selectedDestination: String,
+    showPickupMenu: Boolean,
+    showDestinationMenu: Boolean,
+    onPickupExpandChange: (Boolean) -> Unit,
+    onDestinationExpandChange: (Boolean) -> Unit,
+    onPickupSelected: (String) -> Unit,
+    onDestinationSelected: (String) -> Unit,
+    onGoLive: () -> Unit,
+    onStopLive: () -> Unit,
+    onAcceptRequest: (RideNowRequest) -> Unit,
+    onStartTrip: () -> Unit,
+    onCompleteTrip: () -> Unit,
+    onCancelRide: () -> Unit,
+    onCallPassenger: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-        border = BorderStroke(1.dp, BorderFocus)
+    val hasActiveRequest =
+        uiState.riderLiveRide?.currentRequestId?.isNotBlank() == true
+
+    val hasLockedTrip =
+        hasActiveRequest || passengerRequest?.status.isActiveRideNowStatus()
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(GradientCard)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = if (riderName.isBlank()) "Ride Now mode" else "Hey, $riderName",
-                    color = TextHigh,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
+        RiderRouteAndLiveControlContent(
+            uiState = uiState,
+            riderId = riderId,
+            riderName = riderName,
+            selectedPickup = selectedPickup,
+            selectedDestination = selectedDestination,
+            showPickupMenu = showPickupMenu,
+            showDestinationMenu = showDestinationMenu,
+            hasLockedTrip = hasLockedTrip,
+            onPickupExpandChange = onPickupExpandChange,
+            onDestinationExpandChange = onDestinationExpandChange,
+            onPickupSelected = onPickupSelected,
+            onDestinationSelected = onDestinationSelected,
+            onGoLive = onGoLive,
+            onStopLive = onStopLive
+        )
 
-                Spacer(modifier = Modifier.height(6.dp))
+        RiderActiveTripSection(
+            request = passengerRequest,
+            hasActiveRequest = hasActiveRequest,
+            isProcessing = uiState.isLoading,
+            onStartTrip = onStartTrip,
+            onCompleteTrip = onCompleteTrip,
+            onCancelRide = onCancelRide,
+            onCallPassenger = onCallPassenger
+        )
 
-                Text(
-                    text = "Accept instant passenger requests when you are available right now.",
-                    color = TextMed,
-                    fontSize = 13.sp
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MiniBadge(
-                        text = if (isLive) "Live" else "Offline",
-                        accent = if (isLive) AccentEmerald else AccentRed
-                    )
-                    MiniBadge(
-                        text = if (isBusy) "Busy" else "Available",
-                        accent = if (isBusy) AccentAmber else AccentBlue
-                    )
-                }
-            }
-        }
+        RiderPassengerRequestList(
+            uiState = uiState,
+            availableRequests = availableRequests,
+            riderId = riderId,
+            riderName = riderName,
+            riderPhone = riderPhone,
+            onAcceptRequest = onAcceptRequest
+        )
     }
 }
 
 @Composable
-fun RiderLiveControlCard(
+private fun RiderRouteAndLiveControlContent(
     uiState: RideNowUiState,
     riderId: String,
     riderName: String,
     selectedPickup: String,
     selectedDestination: String,
+    showPickupMenu: Boolean,
+    showDestinationMenu: Boolean,
+    hasLockedTrip: Boolean,
+    onPickupExpandChange: (Boolean) -> Unit,
+    onDestinationExpandChange: (Boolean) -> Unit,
+    onPickupSelected: (String) -> Unit,
+    onDestinationSelected: (String) -> Unit,
     onGoLive: () -> Unit,
     onStopLive: () -> Unit
 ) {
-    val hasActiveRequest = !uiState.riderLiveRide?.currentRequestId.isNullOrBlank()
-    val requestStatus = uiState.passengerRequest?.status
-    val hasLockedTrip =
-        hasActiveRequest ||
-                requestStatus == RideNowStatus.ACCEPTED ||
-                requestStatus == RideNowStatus.ONGOING
-
-    SectionCard(
-        title = "Live Control",
-        subtitle = "Turn Ride Now mode on when you are ready to receive instant passengers."
+    RiderSectionCard(
+        title = "Go Live",
+        subtitle = "Choose your current route. Only matching passenger requests will appear.",
+        icon = "🏍️"
     ) {
-        if (riderId.isBlank() || riderName.isBlank()) {
-            PremiumLoadingCard("Loading rider profile...")
-            return@SectionCard
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniBadge(text = "Route match", accent = AccentEmerald)
+            MiniBadge(text = "1 seat", accent = AccentBlue)
         }
 
-        Text(
-            text = "Selected route: $selectedPickup → $selectedDestination",
-            color = TextMed,
-            fontSize = 13.sp
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SectionLabel(text = "Trip details")
+        Spacer(modifier = Modifier.height(10.dp))
+
+        LocationSelectionCard(
+            label = "Pickup location",
+            selectedLocation = selectedPickup,
+            expanded = showPickupMenu,
+            onExpandChange = onPickupExpandChange,
+            locations = availableLocations,
+            onLocationSelected = onPickupSelected
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        if (hasLockedTrip) {
-            RideNowInfoBanner(
-                message = "You already accepted a passenger request. Complete the trip before going offline."
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+        RouteConnectorLabel(label = "same route passengers only")
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LocationSelectionCard(
+            label = "Destination",
+            selectedLocation = selectedDestination,
+            expanded = showDestinationMenu,
+            onExpandChange = onDestinationExpandChange,
+            locations = availableLocations.filter { it != selectedPickup },
+            onLocationSelected = onDestinationSelected
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        RiderLiveStatusBanner(
+            isLive = uiState.isRiderLive,
+            hasLockedTrip = hasLockedTrip,
+            selectedPickup = selectedPickup,
+            selectedDestination = selectedDestination
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (riderId.isBlank() || riderName.isBlank()) {
+            PremiumLoadingCard("Loading rider profile...")
+            return@RiderSectionCard
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        brush = if (uiState.isRiderLive) {
-                            Brush.linearGradient(listOf(LimeDim, LimeDim))
-                        } else {
-                            GradientLime
-                        }
-                    )
-                    .clickable(enabled = !uiState.isLoading && !uiState.isRiderLive) {
-                        onGoLive()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                if (uiState.isLoading && !uiState.isRiderLive) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = BgDeep
-                    )
-                } else {
-                    Text(
-                        text = if (uiState.isRiderLive) "You are Live" else "Go Live",
-                        color = if (uiState.isRiderLive) Lime else BgDeep,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                }
+            RiderLimeActionButton(
+                text = when {
+                    uiState.isLoading && !uiState.isRiderLive -> "Going Live..."
+                    uiState.isRiderLive -> "You are Live"
+                    else -> "Go Live"
+                },
+                isLoading = uiState.isLoading && !uiState.isRiderLive,
+                enabled = !uiState.isLoading && !uiState.isRiderLive,
+                modifier = Modifier.weight(1f),
+                onClick = onGoLive
+            )
+
+            RiderStopLiveButton(
+                text = if (hasLockedTrip) "Trip Active" else "Stop Live",
+                enabled = !uiState.isLoading && uiState.isRiderLive && !hasLockedTrip,
+                modifier = Modifier.weight(1f),
+                onClick = onStopLive
+            )
+        }
+    }
+}
+
+@Composable
+private fun RiderActiveTripSection(
+    request: RideNowRequest?,
+    hasActiveRequest: Boolean,
+    isProcessing: Boolean,
+    onStartTrip: () -> Unit,
+    onCompleteTrip: () -> Unit,
+    onCancelRide: () -> Unit,
+    onCallPassenger: () -> Unit
+) {
+    if (!hasActiveRequest || request == null) {
+        RideNowInfoBanner(
+            message = "Go live on your selected route to start receiving instant passenger requests."
+        )
+        return
+    }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SectionLabel(text = "Active trip")
+
+        when (request.status) {
+            RideNowStatus.ACCEPTED -> {
+                RideAcceptedCard(
+                    request = request,
+                    isRider = true,
+                    isProcessing = isProcessing,
+                    onStartTrip = onStartTrip,
+                    onCancelRide = onCancelRide,
+                    onCall = onCallPassenger
+                )
             }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(CardElevated)
-                    .clickable(
-                        enabled = !uiState.isLoading && uiState.isRiderLive && !hasLockedTrip
-                    ) {
-                        onStopLive()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (hasLockedTrip) "Trip Active" else "Stop Live",
-                    color = if (uiState.isRiderLive && !hasLockedTrip) AccentRed else TextLow,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
+            RideNowStatus.START_PENDING_CONFIRMATION -> {
+                RideConfirmationCard(
+                    title = "Waiting for passenger confirmation",
+                    message = "You pressed Started. The passenger must confirm that the ride has actually started.",
+                    status = request.status,
+                    isRider = true
+                )
+            }
+
+            RideNowStatus.ONGOING -> {
+                RideOngoingCard(
+                    request = request,
+                    isRider = true,
+                    isProcessing = isProcessing,
+                    onCompleteTrip = onCompleteTrip,
+                    onCall = onCallPassenger
+                )
+            }
+
+            RideNowStatus.END_PENDING_CONFIRMATION -> {
+                RideConfirmationCard(
+                    title = "Waiting for passenger completion",
+                    message = "You pressed Ride Completed. The passenger must confirm safe arrival before the trip becomes completed.",
+                    status = request.status,
+                    isRider = true
+                )
+            }
+
+            RideNowStatus.COMPLETED -> {
+                RideCompletedCard(
+                    request = request,
+                    isRider = true
+                )
+            }
+
+            RideNowStatus.CANCELLED -> {
+                RideConfirmationCard(
+                    title = "Ride Cancelled",
+                    message = "This Ride Now trip has been cancelled.",
+                    status = request.status,
+                    isRider = true
+                )
+            }
+
+            RideNowStatus.EXPIRED -> {
+                RideConfirmationCard(
+                    title = "Request Expired",
+                    message = "This passenger request expired before the ride could start.",
+                    status = request.status,
+                    isRider = true
+                )
+            }
+
+            RideNowStatus.ISSUE_REPORTED -> {
+                RideConfirmationCard(
+                    title = "Issue Reported",
+                    message = "An issue was reported for this ride. This trip is locked for review.",
+                    status = request.status,
+                    isRider = true
+                )
+            }
+
+            else -> {
+                RideConfirmationCard(
+                    title = "Ride Status",
+                    message = "Current status: ${request.status}",
+                    status = request.status,
+                    isRider = true
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RiderPassengerRequestList(
+    uiState: RideNowUiState,
+    availableRequests: List<RideNowRequest>,
+    riderId: String,
+    riderName: String,
+    riderPhone: String,
+    onAcceptRequest: (RideNowRequest) -> Unit
+) {
+    RiderSectionCard(
+        title = "Live Passenger Requests",
+        subtitle = "Passengers on your selected route will appear here in real time.",
+        icon = "🙋"
+    ) {
+        when {
+            uiState.isLoading && availableRequests.isEmpty() -> {
+                PremiumLoadingCard("Loading Ride Now data...")
+            }
+
+            !uiState.isRiderLive -> {
+                EmptyStateCard(
+                    icon = Icons.Default.DirectionsCar,
+                    message = "You are offline.\nSelect a route and tap Go Live to receive matching passenger requests."
+                )
+            }
+
+            uiState.riderLiveRide?.currentRequestId?.isNotBlank() == true -> {
+                EmptyStateCard(
+                    icon = Icons.Default.Timer,
+                    message = "You already have an active passenger.\nComplete the current trip before accepting another request."
+                )
+            }
+
+            availableRequests.isEmpty() -> {
+                EmptyStateCard(
+                    icon = Icons.Default.Person,
+                    message = "No live passenger requests for this route right now.\nStay online and new requests will appear here."
+                )
+            }
+
+            riderId.isBlank() || riderName.isBlank() -> {
+                PremiumLoadingCard("Loading rider profile...")
+            }
+
+            else -> {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    availableRequests.forEach { request ->
+                        RideNowPassengerRequestCard(
+                            request = request,
+                            isProcessing = uiState.isLoading,
+                            onAccept = {
+                                onAcceptRequest(request)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RiderRideNowIntroCard(
+    riderName: String,
+    isLive: Boolean,
+    isBusy: Boolean
+) {
+    RiderSectionCard(
+        title = if (riderName.isBlank()) {
+            "Welcome to Ride Now"
+        } else {
+            "Welcome, $riderName"
+        },
+        subtitle = "Turn on live rider mode when you are ready to accept instant passengers.",
+        icon = "👋"
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniBadge(
+                text = if (isLive) "Live" else "Offline",
+                accent = if (isLive) AccentEmerald else AccentRed
+            )
+
+            MiniBadge(
+                text = if (isBusy) "Trip active" else "Available",
+                accent = if (isBusy) AccentAmber else AccentBlue
+            )
+        }
+    }
+}
+
+@Composable
+private fun RiderLiveStatusBanner(
+    isLive: Boolean,
+    hasLockedTrip: Boolean,
+    selectedPickup: String,
+    selectedDestination: String
+) {
+    val message = when {
+        hasLockedTrip ->
+            "You already accepted a passenger. Complete the current trip before going offline."
+
+        isLive ->
+            "You are live on $selectedPickup → $selectedDestination. Matching passengers can now request you."
+
+        else ->
+            "You are offline. Go live when you are ready to receive instant passenger requests."
+    }
+
+    val accent = when {
+        hasLockedTrip -> AccentAmber
+        isLive -> AccentEmerald
+        else -> AccentBlue
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.08f))
+            .border(
+                1.dp,
+                accent.copy(alpha = 0.18f),
+                RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = Icons.Default.Info,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(17.dp)
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Text(
+            text = message,
+            color = TextMed,
+            fontSize = 12.sp,
+            lineHeight = 18.sp
+        )
+    }
+}
+
+@Composable
+private fun RiderLimeActionButton(
+    text: String,
+    isLoading: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(12.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Lime,
+            contentColor = BgDeep,
+            disabledContainerColor = LimeDeep,
+            disabledContentColor = BgDeep
+        )
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = BgDeep
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.TwoWheeler,
+                contentDescription = null,
+                modifier = Modifier.size(17.dp)
+            )
+
+            Spacer(modifier = Modifier.width(7.dp))
+
+            Text(
+                text = text,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun RiderStopLiveButton(
+    text: String,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            1.dp,
+            if (enabled) AccentRed.copy(alpha = 0.28f) else BorderSubtle
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = if (enabled) AccentRed else TextLow,
+            disabledContentColor = TextLow,
+            containerColor = if (enabled) {
+                AccentRed.copy(alpha = 0.08f)
+            } else {
+                CardElevated
+            }
+        )
+    ) {
+        Text(
+            text = text,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -529,245 +777,180 @@ fun RideNowPassengerRequestCard(
     isProcessing: Boolean,
     onAccept: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-        border = BorderStroke(1.dp, BorderFocus)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(CardBase)
+            .border(1.dp, BorderSubtle, RoundedCornerShape(18.dp))
+            .padding(15.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(GradientCard)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(108.dp)
-                    .align(Alignment.CenterStart)
-                    .background(
-                        GradientLime,
-                        RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)
-                    )
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(LimeDim),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.Person,
-                                contentDescription = null,
-                                tint = Lime,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        Column {
-                            Text(
-                                text = request.passengerName.ifBlank { "Passenger" },
-                                color = TextHigh,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = request.tripTime.ifBlank { "Now" },
-                                color = TextMed,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    MiniBadge(
-                        text = request.status.replaceFirstChar { it.uppercase() },
-                        accent = when (request.status) {
-                            RideNowStatus.SEARCHING -> AccentAmber
-                            RideNowStatus.ACCEPTED -> AccentEmerald
-                            RideNowStatus.ONGOING -> AccentBlue
-                            else -> Lime
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = "${request.pickup} → ${request.destination}",
-                    color = TextMed,
-                    fontSize = 13.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
-                            brush = if (isProcessing) {
-                                Brush.linearGradient(listOf(LimeDim, LimeDim))
-                            } else {
-                                GradientLime
-                            }
+                            Brush.linearGradient(
+                                listOf(
+                                    LimeGlow,
+                                    AccentEmerald.copy(alpha = 0.10f)
+                                )
+                            )
                         )
-                        .clickable(enabled = !isProcessing) { onAccept() },
+                        .border(
+                            1.dp,
+                            Lime.copy(alpha = 0.2f),
+                            RoundedCornerShape(10.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isProcessing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = BgDeep,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint = BgDeep,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Accept Request",
-                                color = BgDeep,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
+                    Text(
+                        text = request.passengerName.ifBlank { "P" }.take(1).uppercase(),
+                        color = Lime,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
                 }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column {
+                    Text(
+                        text = request.passengerName.ifBlank { "Passenger" },
+                        color = TextHigh,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = request.tripTime.ifBlank { "Now" },
+                        color = TextMed,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            MiniBadge(
+                text = request.status.toRideNowLabel(),
+                accent = request.status.toRideNowAccent()
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        RiderRequestRouteLine(
+            pickup = request.pickup,
+            destination = request.destination
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Button(
+            onClick = {
+                if (!isProcessing) {
+                    onAccept()
+                }
+            },
+            enabled = !isProcessing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Lime,
+                contentColor = BgDeep,
+                disabledContainerColor = LimeDeep,
+                disabledContentColor = BgDeep
+            )
+        ) {
+            if (isProcessing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = BgDeep,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp)
+                )
+
+                Spacer(modifier = Modifier.width(7.dp))
+
+                Text(
+                    text = "Accept Request",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
             }
         }
     }
 }
 
 @Composable
-fun ActiveRideNowTripCard(
-    request: RideNowRequest?,
-    onStartTrip: () -> Unit,
-    onCompleteTrip: () -> Unit
+private fun RiderRequestRouteLine(
+    pickup: String,
+    destination: String
 ) {
-    if (request == null) return
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(Lime)
+            )
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-        border = BorderStroke(1.dp, AccentEmerald.copy(alpha = 0.35f))
-    ) {
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Text(
+                text = pickup,
+                color = TextHigh,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(GradientSuccess)
-        ) {
-            Column(
+                .padding(start = 3.dp, top = 4.dp, bottom = 4.dp)
+                .width(1.5.dp)
+                .height(18.dp)
+                .background(BorderSubtle)
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "Active Ride",
-                    color = TextHigh,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(AccentEmerald)
+            )
 
-                Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-                Text(
-                    text = request.passengerName.ifBlank { "Passenger" },
-                    color = TextHigh,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "${request.pickup} → ${request.destination}",
-                    color = TextMed,
-                    fontSize = 13.sp
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                MiniBadge(
-                    text = request.status.replaceFirstChar { it.uppercase() },
-                    accent = when (request.status) {
-                        RideNowStatus.ACCEPTED -> AccentEmerald
-                        RideNowStatus.ONGOING -> AccentBlue
-                        else -> Lime
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                brush = if (request.status == RideNowStatus.ONGOING) {
-                                    Brush.linearGradient(listOf(CardElevated, CardElevated))
-                                } else {
-                                    GradientLime
-                                }
-                            )
-                            .clickable(enabled = request.status == RideNowStatus.ACCEPTED) {
-                                onStartTrip()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Start Trip",
-                            color = if (request.status == RideNowStatus.ACCEPTED) BgDeep else TextLow,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(CardElevated)
-                            .clickable(enabled = request.status == RideNowStatus.ONGOING) {
-                                onCompleteTrip()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Complete",
-                            color = if (request.status == RideNowStatus.ONGOING) AccentEmerald else TextLow,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
+            Text(
+                text = destination,
+                color = TextHigh,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -776,29 +959,69 @@ fun ActiveRideNowTripCard(
 fun RideNowInfoBanner(
     message: String
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardElevated),
-        border = BorderStroke(1.dp, BorderSubtle)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(AccentBlue.copy(alpha = 0.06f))
+            .border(1.dp, AccentBlue.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = null,
-                tint = AccentAmber,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = message,
-                color = TextMed,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Start
-            )
-        }
+        Text(
+            text = "ℹ",
+            color = AccentBlue,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Text(
+            text = message,
+            color = TextMed,
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+            textAlign = TextAlign.Start
+        )
+    }
+}
+
+private fun String?.isActiveRideNowStatus(): Boolean {
+    return this == RideNowStatus.ACCEPTED ||
+            this == RideNowStatus.START_PENDING_CONFIRMATION ||
+            this == RideNowStatus.ONGOING ||
+            this == RideNowStatus.END_PENDING_CONFIRMATION
+}
+
+private fun String.toRideNowLabel(): String {
+    return when (this) {
+        RideNowStatus.SEARCHING -> "Searching"
+        RideNowStatus.NOTIFIED -> "Notified"
+        RideNowStatus.ACCEPTED -> "Accepted"
+        RideNowStatus.START_PENDING_CONFIRMATION -> "Start Pending"
+        RideNowStatus.ONGOING -> "Ongoing"
+        RideNowStatus.END_PENDING_CONFIRMATION -> "End Pending"
+        RideNowStatus.COMPLETED -> "Completed"
+        RideNowStatus.CANCELLED -> "Cancelled"
+        RideNowStatus.EXPIRED -> "Expired"
+        RideNowStatus.ISSUE_REPORTED -> "Issue Reported"
+        else -> replaceFirstChar { it.uppercase() }
+    }
+}
+
+private fun String.toRideNowAccent(): Color {
+    return when (this) {
+        RideNowStatus.SEARCHING -> AccentAmber
+        RideNowStatus.NOTIFIED -> AccentAmber
+        RideNowStatus.ACCEPTED -> AccentEmerald
+        RideNowStatus.START_PENDING_CONFIRMATION -> AccentAmber
+        RideNowStatus.ONGOING -> AccentBlue
+        RideNowStatus.END_PENDING_CONFIRMATION -> AccentAmber
+        RideNowStatus.COMPLETED -> AccentEmerald
+        RideNowStatus.CANCELLED -> AccentRed
+        RideNowStatus.EXPIRED -> AccentRed
+        RideNowStatus.ISSUE_REPORTED -> AccentRed
+        else -> Lime
     }
 }
