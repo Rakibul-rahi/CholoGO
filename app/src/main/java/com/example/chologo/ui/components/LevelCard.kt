@@ -2,17 +2,9 @@ package com.example.chologo.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,137 +23,129 @@ fun LevelCard(
     currentXp: Long,
     xpNeededForNextLevel: Long,
     progress: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    userName: String = "Rakib"
 ) {
-    val goldLight = Color(0xFFFFD27F)
-    val goldDark = Color(0xFFB8860B)
-    val goldAccent = Color(0xFFFFC84A)
-    val cardBorder = Color(0xFF2E2E4E)
+    val bgCard = Color(0xFF161B20)
+    val bgSurface = Color(0xFF111418)
+    val lime = Color(0xFFC6F135)
+    val limeDim = Color(0xFF9DC429)
+    val limeDeep = Color(0xFF6F8F1A)
+    val textHigh = Color(0xFFF1F5F9)
+    val textMed = Color(0xFF8B96A5)
+    val border = Color.White.copy(alpha = 0.07f)
 
     val safeProgress = if (progress.isNaN()) 0f else progress.coerceIn(0f, 1f)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF1E1E35),
-                        Color(0xFF14142A),
-                        Color(0xFF1A1A30)
+                        Color(0xFF1A2410),
+                        Color(0xFF0D1A0A),
+                        bgCard
                     )
                 )
             )
             .border(
                 width = 1.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        goldAccent.copy(alpha = 0.35f),
-                        cardBorder.copy(alpha = 0.35f),
-                        goldAccent.copy(alpha = 0.12f)
-                    )
-                ),
-                shape = RoundedCornerShape(20.dp)
+                color = lime.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(24.dp)
             )
             .padding(20.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(goldAccent, goldDark)
-                            )
-                        )
-                ) {
-                    Text(
-                        text = "$level",
-                        color = Color(0xFF1A1200),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
+            Text(
+                text = "GOOD MORNING",
+                color = limeDim,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.5.sp
+            )
 
-                Column {
-                    Text(
-                        text = levelTitle.uppercase(),
-                        color = goldAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 2.sp
-                    )
-                    Text(
-                        text = "Level $level",
-                        color = Color(0xFFF0EAD6),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(4.dp))
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "$userName 👋",
+                color = textHigh,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(lime, limeDim)
+                                )
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "LVL $level",
+                            color = Color.Black,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = levelTitle,
+                        color = textMed,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
                 Text(
-                    text = "${"%,d".format(currentXp)} XP",
-                    color = Color(0xFFF0EAD6),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "${(safeProgress * 100).toInt()}%",
-                    color = goldAccent.copy(alpha = 0.85f),
-                    fontSize = 13.sp,
+                    text = "${"%,d".format(currentXp)} / ${"%,d".format(xpNeededForNextLevel)} XP",
+                    color = limeDim,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF2A2A45))
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(Color.White.copy(alpha = 0.06f))
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(safeProgress)
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(50))
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50.dp))
                         .background(
                             brush = Brush.horizontalGradient(
-                                colors = listOf(goldDark, goldAccent, goldLight)
+                                colors = listOf(limeDeep, lime)
                             )
                         )
                 )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "${"%,d".format(xpNeededForNextLevel)} XP to next level",
-                color = Color(0xFF8888AA),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Normal,
-                letterSpacing = 0.3.sp
-            )
         }
     }
 }

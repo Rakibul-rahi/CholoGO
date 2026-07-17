@@ -1,4 +1,4 @@
-package com.example.chologo.ui.profile
+package com.example.chologo.ui.screens
 
 import android.content.Context
 import androidx.compose.foundation.background

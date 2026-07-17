@@ -1,28 +1,26 @@
 package com.example.chologo.ui.components
 
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,17 +36,19 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.chologo.R
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
-private val BannerBg = Color(0xFF111827)
-private val OverlayDark = Color(0xB3000000)
-private val GreenPrimary = Color(0xFF8DC63F)
-private val TextPrimary = Color(0xFFE6EDF3)
-private val TextSecondary = Color(0xFFD1D5DB)
-private val ChipBg = Color(0x66243141)
-private val DotInactive = Color(0x66FFFFFF)
+private val BgStart = Color(0xFF1A1030)
+private val BgEnd = Color(0xFF0D1520)
+private val BlueAccent = Color(0xFF60A5FA)
+private val LimeAccent = Color(0xFFC6F135)
+private val TextHigh = Color(0xFFF1F5F9)
+private val TextMed = Color(0xFF8B96A5)
+private val BorderBlue = Color(0x3360A5FA)
+private val DotInactive = Color.White.copy(alpha = 0.12f)
 
 data class LocalAd(
     val companyName: String,
@@ -63,21 +63,21 @@ object LocalAds {
         LocalAd(
             companyName = "CoyToy Bangladesh",
             title = "Where every gift holds a memory",
-            description = "Unique gifts, cute finds, and memorable picks for every occasion.",
+            description = "Unique gifts, cute finds, and memorable picks.",
             imageRes = R.drawable.coytoy_ad,
             companyUrl = "https://www.facebook.com/coytoybangladesh/"
         ),
         LocalAd(
             companyName = "Sayora",
-            title = "🛍️ Where every gift holds a memory",
-            description = "Jewelry, souvenir, fashion, and home. Find us @sayemanheritage & @sayemanresort",
+            title = "Jewelry, souvenir & fashion",
+            description = "Find us at Sayeman Heritage and Sayeman Resort.",
             imageRes = R.drawable.sayora_ad,
             companyUrl = "https://www.facebook.com/profile.php?id=61576789233032/"
         ),
         LocalAd(
             companyName = "Defne",
-            title = "Sunglasses & Eyewear Store",
-            description = "Frame Your Style. Define Your Look",
+            title = "Frame Your Style",
+            description = "Sunglasses and eyewear for your everyday look.",
             imageRes = R.drawable.defne_ad,
             companyUrl = "https://www.facebook.com/defne.fa.co/"
         )
@@ -108,109 +108,132 @@ fun LocalAdCarouselBanner(
         }
     }
 
-    Card(
+    if (ads.isEmpty()) return
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(170.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = BannerBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .height(76.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(BgStart, BgEnd)
+                )
+            )
+            .border(
+                width = 1.dp,
+                color = BorderBlue,
+                shape = RoundedCornerShape(18.dp)
+            )
     ) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxWidth()
         ) { page ->
+
             val ad = ads[page]
 
-            fun openCompanyLink() {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ad.companyUrl))
-                context.startActivity(intent)
-            }
-
-            Box(
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .clickable { openCompanyLink() }
+                    .fillMaxWidth()
+                    .height(76.dp)
+                    .clickable {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ad.companyUrl))
+                        context.startActivity(intent)
+                    }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Image(
-                    painter = painterResource(id = ad.imageRes),
-                    contentDescription = ad.companyName,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    OverlayDark,
-                                    Color(0x99000000),
-                                    Color(0x55000000)
-                                )
-                            )
-                        )
-                )
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(BlueAccent.copy(alpha = 0.12f))
+                        .border(
+                            width = 1.dp,
+                            color = BlueAccent.copy(alpha = 0.20f),
+                            shape = RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = ad.imageRes),
+                        contentDescription = ad.companyName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
 
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Column {
-                        Surface(
-                            shape = CircleShape,
-                            color = ChipBg
-                        ) {
-                            Text(
-                                text = ad.companyName,
-                                color = GreenPrimary,
-                                fontWeight = FontWeight.SemiBold,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
-                        }
+                    Text(
+                        text = ad.title,
+                        color = TextHigh,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
 
-                        Text(
-                            text = ad.title,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.ExtraBold,
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                    Text(
+                        text = ad.description,
+                        color = TextMed,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "Sponsored by ${ad.companyName}",
+                        color = LimeAccent.copy(alpha = 0.85f),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ads.forEachIndexed { index, _ ->
+                        Box(
+                            modifier = Modifier
+                                .then(
+                                    if (index == pagerState.currentPage) {
+                                        Modifier
+                                            .width(14.dp)
+                                            .height(5.dp)
+                                    } else {
+                                        Modifier.size(5.dp)
+                                    }
+                                )
+                                .clip(
+                                    if (index == pagerState.currentPage) {
+                                        RoundedCornerShape(4.dp)
+                                    } else {
+                                        CircleShape
+                                    }
+                                )
+                                .background(
+                                    if (index == pagerState.currentPage) BlueAccent else DotInactive
+                                )
                         )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = ad.description,
-                            color = TextSecondary,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ads.forEachIndexed { index, _ ->
-                            Box(
-                                modifier = Modifier
-                                    .padding(start = 4.dp)
-                                    .size(if (index == pagerState.currentPage) 10.dp else 7.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (index == pagerState.currentPage) GreenPrimary else DotInactive
-                                    )
-                            )
-                        }
                     }
                 }
             }

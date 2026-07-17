@@ -18,7 +18,7 @@ data class RideRequest(
     val routeKey: String = "",        // e.g. to_campus|mirpur 12|aust gate
     val rideDate: String = "",        // e.g. 2026-04-06
 
-    val status: String = "pending",   // pending, accepted, cancelled
+    val status: String = "pending",   // pending, accepted, cancelled, cancel_requested_by_passenger
     val createdAt: Timestamp? = null,
 
     val matchedRideId: String = "",
@@ -27,6 +27,14 @@ data class RideRequest(
     val matchedRiderPhone: String = "",
     val matchedRideTime: String = "",
     val acceptedAt: Timestamp? = null,
+    val riderRated: Boolean = false,
+    val issueReported: Boolean = false,
 
-    val rejectedByRiderIds: List<String> = emptyList()
+    val rejectedByRiderIds: List<String> = emptyList(),
+
+    // Cancellation tracking - populated whichever side initiates a cancel.
+    val cancelledBy: String = "",
+    val cancelledByRole: String = "",       // "rider" or "passenger"
+    val cancellationReason: String = "",
+    val cancelledAt: Timestamp? = null
 )

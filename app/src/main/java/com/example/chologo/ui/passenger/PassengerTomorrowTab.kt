@@ -11,7 +11,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
@@ -49,11 +49,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,14 +61,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.chologo.data.model.Ride
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.repository.UserRepository
 import com.example.chologo.viewmodel.AuthViewModel
-import com.google.firebase.Timestamp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlin.math.abs
+import com.example.chologo.viewmodel.TomorrowMatchedRide
+import com.example.chologo.viewmodel.TomorrowRideViewModel
 
 private fun openDialer(context: android.content.Context, phoneNumber: String) {
     if (phoneNumber.isBlank() || phoneNumber == "N/A") {
@@ -84,17 +80,34 @@ private fun openDialer(context: android.content.Context, phoneNumber: String) {
     context.startActivity(intent)
 }
 
+private fun TomorrowMatchedRide.toRideCardUi(): RideCardUi {
+    return RideCardUi(
+        rideId = rideId,
+        driverName = riderName.ifBlank { "Rider" },
+        routeLabel = when (tripDirection) {
+            "to_campus" -> "To Campus"
+            "to_home" -> "To Home"
+            else -> "Ride"
+        },
+        origin = pickup,
+        destination = destination,
+        departureTime = tripTime,
+        seatsLeft = availableSeats,
+        phone = ""
+    )
+}
+
 @Composable
 fun PassengerTomorrowTab(
     authViewModel: AuthViewModel,
     userRepository: UserRepository,
-    onXpUpdated: (Long) -> Unit
+    onXpUpdated: (Long) -> Unit,
+    tomorrowRideViewModel: TomorrowRideViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val auth = FirebaseAuth.getInstance()
-    val db = FirebaseFirestore.getInstance()
     val tomorrowDate = remember { getTomorrowDateKey() }
     val authState by authViewModel.uiState.collectAsState()
+    val uiState by tomorrowRideViewModel.uiState.collectAsState()
 
     var hasClassesTomorrow by remember { mutableStateOf<Boolean?>(null) }
 
@@ -115,313 +128,78 @@ fun PassengerTomorrowTab(
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
 
-    var isSubmitting by remember { mutableStateOf(false) }
-    var isLoadingRequests by remember { mutableStateOf(true) }
-    var isLoadingMatches by remember { mutableStateOf(false) }
-    var requestSubmitted by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
-    var submittedDateText by remember { mutableStateOf("") }
-    var hasAcceptedRequest by remember { mutableStateOf(false) }
-
-    val savedRequestList = remember { mutableStateListOf<RideRequest>() }
-    val matchedRideCards = remember { mutableStateListOf<RideCardUi>() }
+    var hasLoadedOnce by remember { mutableStateOf(false) }
 
     val classStartText = formatTo12Hour(classStartHour, classStartMinute)
     val classEndText = formatTo12Hour(classEndHour, classEndMinute)
 
-    fun applyRequestsToUi(requests: List<RideRequest>) {
-        var foundCampus = false
-        var foundHome = false
-        var foundDate: String? = null
+    val campusRequest = uiState.savedRequests.firstOrNull { it.tripDirection == "to_campus" }
+    val homeRequest = uiState.savedRequests.firstOrNull { it.tripDirection == "to_home" }
 
-        hasAcceptedRequest = requests.any { it.status.equals("accepted", true) }
+    val isCampusLocked = campusRequest != null && campusRequest.status != "pending"
+    val isHomeLocked = homeRequest != null && homeRequest.status != "pending"
 
-        requests.forEach { request ->
-            if (request.createdAt != null && foundDate == null) {
-                foundDate = formatTimestampToDate(request.createdAt)
-            }
-
-            when (request.tripDirection.lowercase()) {
-                "to_campus" -> {
-                    campusPickupLocation = request.pickup.ifBlank { "Mirpur 12" }
-                    if (request.timeMinutes > 0) {
-                        classStartHour = request.timeMinutes / 60
-                        classStartMinute = request.timeMinutes % 60
-                    } else {
-                        classStartHour = request.hour
-                        classStartMinute = request.minute
-                    }
-                    foundCampus = true
-                    wantToCampus = true
-                }
-
-                "to_home" -> {
-                    homeReturnLocation = request.destination.ifBlank { "Mirpur 12" }
-                    if (request.timeMinutes > 0) {
-                        classEndHour = request.timeMinutes / 60
-                        classEndMinute = request.timeMinutes % 60
-                    } else {
-                        classEndHour = request.hour
-                        classEndMinute = request.minute
-                    }
-                    foundHome = true
-                    wantToHome = true
-                }
-            }
-        }
-
-        if (foundCampus || foundHome) {
-            wantToCampus = foundCampus
-            wantToHome = foundHome
-        }
-
-        submittedDateText = foundDate ?: tomorrowDate
-        requestSubmitted = foundCampus || foundHome
-        hasClassesTomorrow = if (requestSubmitted) true else null
-        isEditing = !requestSubmitted
-        isLoadingRequests = false
-    }
-
-    fun loadMatchedRides(requests: List<RideRequest>) {
-        val pendingRequests = requests.filter { it.status.equals("pending", true) }
-
-        if (pendingRequests.isEmpty()) {
-            matchedRideCards.clear()
-            isLoadingMatches = false
-            return
-        }
-
-        isLoadingMatches = true
-        matchedRideCards.clear()
-
-        db.collection("rides")
-            .whereEqualTo("rideDate", tomorrowDate)
-            .whereEqualTo("status", "active")
-            .get()
-            .addOnSuccessListener { result ->
-                val rides = result.documents.mapNotNull { doc ->
-                    doc.toObject(Ride::class.java)?.copy(rideId = doc.id)
-                }
-
-                val matched = mutableListOf<RideCardUi>()
-
-                pendingRequests.forEach { request ->
-                    rides.filter { ride ->
-                        ride.availableSeats > 0 &&
-                                ride.routeKey == request.routeKey &&
-                                abs(ride.timeMinutes - request.timeMinutes) <= 30
-                    }.forEach { ride ->
-                        matched.add(
-                            RideCardUi(
-                                rideId = ride.rideId,
-                                driverName = ride.riderName.ifBlank { "Rider" },
-                                routeLabel = when (ride.tripDirection) {
-                                    "to_campus" -> "To Campus"
-                                    "to_home" -> "To Home"
-                                    else -> "Ride"
-                                },
-                                origin = ride.pickup,
-                                destination = ride.destination,
-                                departureTime = ride.tripTime,
-                                seatsLeft = ride.availableSeats,
-                                phone =  ""
-                            )
-                        )
-                    }
-                }
-
-                matchedRideCards.clear()
-                matchedRideCards.addAll(matched.distinctBy { it.rideId })
-                isLoadingMatches = false
-            }
-            .addOnFailureListener { e ->
-                isLoadingMatches = false
-                Toast.makeText(
-                    context,
-                    "Failed to load matched rides: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    fun loadTomorrowRequests() {
-        val currentUser = auth.currentUser
-        if (currentUser == null) {
-            isLoadingRequests = false
-            isEditing = true
-            savedRequestList.clear()
-            return
-        }
-
-        db.collection("ride_requests")
-            .whereEqualTo("userId", currentUser.uid)
-            .whereEqualTo("rideDate", tomorrowDate)
-            .get()
-            .addOnSuccessListener { result ->
-                val requests = result.documents.mapNotNull { doc ->
-                    doc.toObject(RideRequest::class.java)?.copy(requestId = doc.id)
-                }.sortedBy {
-                    when (it.tripDirection) {
-                        "to_campus" -> 0
-                        "to_home" -> 1
-                        else -> 2
-                    }
-                }
-
-                savedRequestList.clear()
-                savedRequestList.addAll(requests)
-                applyRequestsToUi(requests)
-                loadMatchedRides(requests)
-            }
-            .addOnFailureListener { e ->
-                isLoadingRequests = false
-                isEditing = true
-                savedRequestList.clear()
-                Toast.makeText(
-                    context,
-                    "Could not load previous requests: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
+    val requestSubmitted = uiState.savedRequests.isNotEmpty()
+    val hasAcceptedRequest = uiState.savedRequests.any { it.status.equals("accepted", true) }
+    val submittedDateText = uiState.savedRequests.firstOrNull()?.rideDate ?: tomorrowDate
 
     fun refreshPassengerXp() {
         userRepository.getCurrentUserData { result ->
-            result.onSuccess { user ->
-                onXpUpdated(user.xp)
-            }
+            result.onSuccess { user -> onXpUpdated(user.xp) }
         }
     }
 
-    fun saveTomorrowRequests() {
-        if (!wantToCampus && !wantToHome) {
-            Toast.makeText(
-                context,
-                "Please select at least one trip direction.",
-                Toast.LENGTH_SHORT
-            ).show()
-            return
+    LaunchedEffect(authState.userId) {
+        if (authState.userId.isNotBlank()) {
+            tomorrowRideViewModel.startPassengerSession(authState.userId, tomorrowDate)
         }
-
-        val currentUser = auth.currentUser
-        if (currentUser == null) {
-            Toast.makeText(context, "Please login first", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        isSubmitting = true
-
-        val userId = currentUser.uid
-        val passengerName = authState.userName.ifBlank { "Passenger" }
-
-        db.collection("ride_requests")
-            .whereEqualTo("userId", userId)
-            .whereEqualTo("rideDate", tomorrowDate)
-            .get()
-            .addOnSuccessListener { result ->
-                val batch = db.batch()
-
-                result.documents.forEach { doc ->
-                    batch.delete(doc.reference)
-                }
-
-                val now = Timestamp.now()
-                val savedRequests = mutableListOf<RideRequest>()
-
-                if (wantToCampus) {
-                    val toCampusRef = db.collection("ride_requests").document()
-                    val toCampusRequest = RideRequest(
-                        requestId = toCampusRef.id,
-                        userId = userId,
-                        passengerName = passengerName,
-                        pickup = campusPickupLocation,
-                        destination = "AUST Gate",
-                        tripDirection = "to_campus",
-                        tripTime = classStartText,
-                        hour = classStartHour,
-                        minute = classStartMinute,
-                        timeMinutes = toMinutes(classStartHour, classStartMinute),
-                        routeKey = buildRouteKey("to_campus", campusPickupLocation, "AUST Gate"),
-                        rideDate = tomorrowDate,
-                        status = "pending",
-                        createdAt = now
-                    )
-                    batch.set(toCampusRef, toCampusRequest)
-                    savedRequests.add(toCampusRequest)
-                }
-
-                if (wantToHome) {
-                    val toHomeRef = db.collection("ride_requests").document()
-                    val toHomeRequest = RideRequest(
-                        requestId = toHomeRef.id,
-                        userId = userId,
-                        passengerName = passengerName,
-                        pickup = "AUST Gate",
-                        destination = homeReturnLocation,
-                        tripDirection = "to_home",
-                        tripTime = classEndText,
-                        hour = classEndHour,
-                        minute = classEndMinute,
-                        timeMinutes = toMinutes(classEndHour, classEndMinute),
-                        routeKey = buildRouteKey("to_home", "AUST Gate", homeReturnLocation),
-                        rideDate = tomorrowDate,
-                        status = "pending",
-                        createdAt = now
-                    )
-                    batch.set(toHomeRef, toHomeRequest)
-                    savedRequests.add(toHomeRequest)
-                }
-
-                batch.commit()
-                    .addOnSuccessListener {
-                        userRepository.addXpToCurrentUser(5L) { xpResult ->
-                            xpResult.onSuccess { refreshPassengerXp() }
-                        }
-
-                        isSubmitting = false
-                        requestSubmitted = true
-                        isEditing = false
-                        hasClassesTomorrow = true
-                        hasAcceptedRequest = false
-                        submittedDateText = tomorrowDate
-
-                        savedRequestList.clear()
-                        savedRequestList.addAll(savedRequests)
-                        loadMatchedRides(savedRequests)
-
-                        val dirLabel = when {
-                            wantToCampus && wantToHome -> "both trips"
-                            wantToCampus -> "campus trip"
-                            else -> "return trip"
-                        }
-
-                        Toast.makeText(
-                            context,
-                            "Tomorrow $dirLabel saved (+5 XP)",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    .addOnFailureListener { e ->
-                        isSubmitting = false
-                        Toast.makeText(
-                            context,
-                            "Submission failed: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-            }
-            .addOnFailureListener { e ->
-                isSubmitting = false
-                Toast.makeText(
-                    context,
-                    "Failed to prepare submission: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
     }
 
-    LaunchedEffect(Unit) {
-        loadTomorrowRequests()
+    // Populate editable fields from live data, but only when not actively
+    // editing, so an incoming snapshot doesn't clobber unsaved changes.
+    LaunchedEffect(uiState.savedRequests, isEditing) {
+        if (!isEditing) {
+            campusRequest?.let { request ->
+                campusPickupLocation = request.pickup.ifBlank { "Mirpur 12" }
+                if (request.timeMinutes > 0) {
+                    classStartHour = request.timeMinutes / 60
+                    classStartMinute = request.timeMinutes % 60
+                }
+                wantToCampus = true
+            }
+
+            homeRequest?.let { request ->
+                homeReturnLocation = request.destination.ifBlank { "Mirpur 12" }
+                if (request.timeMinutes > 0) {
+                    classEndHour = request.timeMinutes / 60
+                    classEndMinute = request.timeMinutes % 60
+                }
+                wantToHome = true
+            }
+
+            if (requestSubmitted) {
+                hasClassesTomorrow = true
+            }
+        }
+
+        hasLoadedOnce = true
+    }
+
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            tomorrowRideViewModel.clearMessage()
+        }
+    }
+
+    LaunchedEffect(uiState.successMessage) {
+        uiState.successMessage?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            tomorrowRideViewModel.clearMessage()
+            refreshPassengerXp()
+            isEditing = false
+        }
     }
 
     Column(
@@ -439,7 +217,7 @@ fun PassengerTomorrowTab(
         }
 
         when {
-            isLoadingRequests -> {
+            !hasLoadedOnce -> {
                 PremiumLoadingCard("Loading tomorrow requests...")
             }
 
@@ -451,7 +229,7 @@ fun PassengerTomorrowTab(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         PassengerTomorrowSubmittedCard(
-                            savedRequests = savedRequestList,
+                            savedRequests = uiState.savedRequests,
                             submittedDate = submittedDateText,
                             isAccepted = hasAcceptedRequest,
                             onEditClick = { isEditing = true }
@@ -474,14 +252,12 @@ fun PassengerTomorrowTab(
                         }
 
                         if (hasAcceptedRequest) {
-                            AcceptedRequestsSection(savedRequestList = savedRequestList)
+                            AcceptedRequestsSection(savedRequestList = uiState.savedRequests)
                         } else {
-                            when {
-                                isLoadingMatches -> {
-                                    PremiumLoadingCard("Loading matched rides...")
-                                }
+                            val matchedCards = uiState.matchedRidesForPassenger.map { it.toRideCardUi() }
 
-                                matchedRideCards.isEmpty() -> {
+                            when {
+                                matchedCards.isEmpty() -> {
                                     EmptyStateCard(
                                         icon = Icons.Default.Info,
                                         message = "No rider matched your saved request yet."
@@ -489,7 +265,7 @@ fun PassengerTomorrowTab(
                                 }
 
                                 else -> {
-                                    matchedRideCards.forEach { ride ->
+                                    matchedCards.forEach { ride ->
                                         PassengerRideCard(
                                             ride = ride,
                                             highlight = true
@@ -509,9 +285,6 @@ fun PassengerTomorrowTab(
                     onYesClick = { hasClassesTomorrow = true },
                     onNoClick = {
                         hasClassesTomorrow = false
-                        requestSubmitted = false
-                        isEditing = false
-                        matchedRideCards.clear()
                     }
                 )
 
@@ -534,96 +307,138 @@ fun PassengerTomorrowTab(
                             SectionLabel(text = "Trip directions")
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            TripDirectionToggle(
-                                label = "Going to Campus",
-                                checked = wantToCampus,
-                                onCheckedChange = { wantToCampus = it }
-                            )
+                            if (isCampusLocked) {
+                                LockedLegNotice(
+                                    message = "Your campus trip is already accepted and can't be edited here."
+                                )
+                            } else {
+                                TripDirectionToggle(
+                                    label = "Going to Campus",
+                                    checked = wantToCampus,
+                                    onCheckedChange = { wantToCampus = it }
+                                )
 
-                            AnimatedVisibility(visible = wantToCampus) {
-                                Column {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    SectionLabel(text = "Campus trip details")
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                AnimatedVisibility(visible = wantToCampus) {
+                                    Column {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        SectionLabel(text = "Campus trip details")
+                                        Spacer(modifier = Modifier.height(10.dp))
 
-                                    LocationSelectionCard(
-                                        label = "Pickup for campus trip",
-                                        selectedLocation = campusPickupLocation,
-                                        expanded = showCampusPickupMenu,
-                                        onExpandChange = { showCampusPickupMenu = it },
-                                        locations = availableLocations.filter { it != "AUST Gate" },
-                                        leadingIcon = Icons.Default.LocationOn,
-                                        onLocationSelected = {
-                                            campusPickupLocation = it
-                                            showCampusPickupMenu = false
-                                        }
-                                    )
+                                        LocationSelectionCard(
+                                            label = "Pickup for campus trip",
+                                            selectedLocation = campusPickupLocation,
+                                            expanded = showCampusPickupMenu,
+                                            onExpandChange = { showCampusPickupMenu = it },
+                                            locations = availableLocations.filter { it != "AUST Gate" },
+                                            leadingIcon = Icons.Default.LocationOn,
+                                            onLocationSelected = {
+                                                campusPickupLocation = it
+                                                showCampusPickupMenu = false
+                                            }
+                                        )
 
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                        Spacer(modifier = Modifier.height(12.dp))
 
-                                    PassengerTimeSelectionCard(
-                                        label = "Class start / campus ride time",
-                                        selectedTimeText = classStartText,
-                                        helper = "Used for your trip to campus.",
-                                        onPickTimeClick = { showStartTimePicker = true }
-                                    )
+                                        PassengerTimeSelectionCard(
+                                            label = "Class start / campus ride time",
+                                            selectedTimeText = classStartText,
+                                            helper = "Used for your trip to campus.",
+                                            onPickTimeClick = { showStartTimePicker = true }
+                                        )
+                                    }
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            TripDirectionToggle(
-                                label = "Coming Back Home",
-                                checked = wantToHome,
-                                onCheckedChange = { wantToHome = it }
-                            )
+                            if (isHomeLocked) {
+                                LockedLegNotice(
+                                    message = "Your return trip is already accepted and can't be edited here."
+                                )
+                            } else {
+                                TripDirectionToggle(
+                                    label = "Coming Back Home",
+                                    checked = wantToHome,
+                                    onCheckedChange = { wantToHome = it }
+                                )
 
-                            AnimatedVisibility(visible = wantToHome) {
-                                Column {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    SectionLabel(text = "Return trip details")
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                AnimatedVisibility(visible = wantToHome) {
+                                    Column {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        SectionLabel(text = "Return trip details")
+                                        Spacer(modifier = Modifier.height(10.dp))
 
-                                    LocationSelectionCard(
-                                        label = "Drop location for return trip",
-                                        selectedLocation = homeReturnLocation,
-                                        expanded = showHomeReturnMenu,
-                                        onExpandChange = { showHomeReturnMenu = it },
-                                        locations = availableLocations.filter { it != "AUST Gate" },
-                                        leadingIcon = Icons.Default.Home,
-                                        onLocationSelected = {
-                                            homeReturnLocation = it
-                                            showHomeReturnMenu = false
-                                        }
-                                    )
+                                        LocationSelectionCard(
+                                            label = "Drop location for return trip",
+                                            selectedLocation = homeReturnLocation,
+                                            expanded = showHomeReturnMenu,
+                                            onExpandChange = { showHomeReturnMenu = it },
+                                            locations = availableLocations.filter { it != "AUST Gate" },
+                                            leadingIcon = Icons.Default.Home,
+                                            onLocationSelected = {
+                                                homeReturnLocation = it
+                                                showHomeReturnMenu = false
+                                            }
+                                        )
 
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                        Spacer(modifier = Modifier.height(12.dp))
 
-                                    PassengerTimeSelectionCard(
-                                        label = "Class end / home ride time",
-                                        selectedTimeText = classEndText,
-                                        helper = "Used for your trip back home.",
-                                        onPickTimeClick = { showEndTimePicker = true }
-                                    )
+                                        PassengerTimeSelectionCard(
+                                            label = "Class end / home ride time",
+                                            selectedTimeText = classEndText,
+                                            helper = "Used for your trip back home.",
+                                            onPickTimeClick = { showEndTimePicker = true }
+                                        )
+                                    }
                                 }
                             }
 
-                            AnimatedVisibility(visible = !wantToCampus && !wantToHome) {
-                                Column(
-                                    modifier = Modifier.padding(top = 12.dp)
-                                ) {
+                            AnimatedVisibility(
+                                visible = !isCampusLocked && !isHomeLocked &&
+                                        !wantToCampus && !wantToHome
+                            ) {
+                                Column(modifier = Modifier.padding(top = 12.dp)) {
                                     NeitherDirectionWarning()
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(18.dp))
 
-                            LimeActionButton(
-                                text = if (isSubmitting) "Saving..." else "Save Tomorrow Request",
-                                icon = Icons.Default.CheckCircle,
-                                isLoading = isSubmitting,
-                                onClick = { saveTomorrowRequests() }
-                            )
+                            if (isCampusLocked && isHomeLocked) {
+                                RideNowInfoBanner(
+                                    message = "Both trips are already accepted. There's nothing left to edit for tomorrow."
+                                )
+                            } else {
+                                LimeActionButton(
+                                    text = if (uiState.isLoading) "Saving..." else "Save Tomorrow Request",
+                                    icon = Icons.Default.CheckCircle,
+                                    isLoading = uiState.isLoading,
+                                    onClick = {
+                                        if (authState.userId.isBlank()) {
+                                            Toast.makeText(context, "Please login first", Toast.LENGTH_SHORT).show()
+                                            return@LimeActionButton
+                                        }
+
+                                        tomorrowRideViewModel.savePassengerPlan(
+                                            userId = authState.userId,
+                                            passengerName = authState.userName.ifBlank { "Passenger" },
+                                            rideDate = tomorrowDate,
+                                            wantCampus = wantToCampus && !isCampusLocked,
+                                            campusPickup = campusPickupLocation,
+                                            campusTripTime = classStartText,
+                                            campusHour = classStartHour,
+                                            campusMinute = classStartMinute,
+                                            campusTimeMinutes = toMinutes(classStartHour, classStartMinute),
+                                            wantHome = wantToHome && !isHomeLocked,
+                                            homeDestination = homeReturnLocation,
+                                            homeTripTime = classEndText,
+                                            homeHour = classEndHour,
+                                            homeMinute = classEndMinute,
+                                            homeTimeMinutes = toMinutes(classEndHour, classEndMinute)
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -659,58 +474,34 @@ fun PassengerTomorrowTab(
 }
 
 @Composable
-fun PassengerTomorrowSubmittedCard(
-    savedRequests: SnapshotStateList<RideRequest>,
-    submittedDate: String,
-    isAccepted: Boolean,
-    onEditClick: () -> Unit
-) {
-    val campusReq = savedRequests.firstOrNull { it.tripDirection == "to_campus" }
-    val homeReq = savedRequests.firstOrNull { it.tripDirection == "to_home" }
-
-    PassengerSectionCard(
-        title = "Saved Tomorrow Plan",
-        subtitle = "Your request is already saved for $submittedDate."
+private fun LockedLegNotice(message: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AccentEmerald.copy(alpha = 0.08f))
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MiniBadge(
-                text = if (isAccepted) "Accepted" else "Pending",
-                accent = if (isAccepted) AccentEmerald else AccentAmber
-            )
-            MiniBadge(text = "Tomorrow", accent = AccentBlue)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        campusReq?.let { req ->
-            RideMetaRow(Icons.Default.DirectionsCar, "To campus: ${req.pickup} → AUST Gate")
-            Spacer(modifier = Modifier.height(6.dp))
-            RideMetaRow(Icons.Default.Schedule, "Campus time: ${req.tripTime}")
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-
-        homeReq?.let { req ->
-            RideMetaRow(Icons.Default.Home, "Return: AUST Gate → ${req.destination}")
-            Spacer(modifier = Modifier.height(6.dp))
-            RideMetaRow(Icons.Default.Schedule, "Return time: ${req.tripTime}")
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-
-        OutlinedButton(
-            onClick = onEditClick,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, Lime),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Lime)
-        ) {
-            Text("Edit Request")
-        }
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            tint = AccentEmerald,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = message,
+            color = TextMed,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
     }
 }
 
 @Composable
 fun AcceptedRequestsSection(
-    savedRequestList: SnapshotStateList<RideRequest>
+    savedRequestList: List<RideRequest>
 ) {
     val context = LocalContext.current
 
@@ -821,7 +612,6 @@ fun TripDirectionToggle(
                     listOf(CardElevated, CardBase)
                 )
             )
-            .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp))
             .clickable { onCheckedChange(!checked) }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -854,11 +644,6 @@ fun NeitherDirectionWarning() {
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(AccentAmber.copy(alpha = 0.12f))
-            .border(
-                1.dp,
-                AccentAmber.copy(alpha = 0.22f),
-                RoundedCornerShape(12.dp)
-            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -921,4 +706,54 @@ fun PassengerTimePickerDialog(
             TimePicker(state = timePickerState)
         }
     )
+}
+
+@Composable
+private fun PassengerTomorrowSubmittedCard(
+    savedRequests: List<RideRequest>,
+    submittedDate: String,
+    isAccepted: Boolean,
+    onEditClick: () -> Unit
+) {
+    val campusReq = savedRequests.firstOrNull { it.tripDirection == "to_campus" }
+    val homeReq = savedRequests.firstOrNull { it.tripDirection == "to_home" }
+
+    PassengerSectionCard(
+        title = "Saved Tomorrow Plan",
+        subtitle = "Your request is already saved for $submittedDate."
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniBadge(
+                text = if (isAccepted) "Accepted" else "Pending",
+                accent = if (isAccepted) AccentEmerald else AccentAmber
+            )
+            MiniBadge(text = "Tomorrow", accent = AccentBlue)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        campusReq?.let { req ->
+            RideMetaRow(Icons.Default.DirectionsCar, "To campus: ${req.pickup} → AUST Gate")
+            Spacer(modifier = Modifier.height(6.dp))
+            RideMetaRow(Icons.Default.Schedule, "Campus time: ${req.tripTime}")
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        homeReq?.let { req ->
+            RideMetaRow(Icons.Default.Home, "Return: AUST Gate → ${req.destination}")
+            Spacer(modifier = Modifier.height(6.dp))
+            RideMetaRow(Icons.Default.Schedule, "Return time: ${req.tripTime}")
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        OutlinedButton(
+            onClick = onEditClick,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, Lime),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Lime)
+        ) {
+            Text("Edit Request")
+        }
+    }
 }

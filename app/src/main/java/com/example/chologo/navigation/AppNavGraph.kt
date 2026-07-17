@@ -13,16 +13,22 @@ import com.example.chologo.ui.auth.ForgotPasswordScreen
 import com.example.chologo.ui.auth.LoginScreen
 import com.example.chologo.ui.auth.RoleSelectionScreen
 import com.example.chologo.ui.auth.SignupScreen
+import com.example.chologo.ui.common.RideHistoryScreen
 import com.example.chologo.ui.passenger.PassengerDashboardScreen
-import com.example.chologo.ui.profile.ProfileScreen
 import com.example.chologo.ui.rider.RiderDashboardScreen
 import com.example.chologo.ui.rider.RiderRideNowScreen
+import com.example.chologo.ui.screens.ProfileScreen
 import com.example.chologo.viewmodel.AuthViewModel
+import com.example.chologo.viewmodel.RideNowViewModel
+import com.google.firebase.auth.FirebaseAuth
 
 @Composable
 fun AppNavGraph(startDestination: String) {
     val navController = rememberNavController()
+
     val authViewModel: AuthViewModel = viewModel()
+    val rideNowViewModel: RideNowViewModel = viewModel()
+
     val uiState by authViewModel.uiState.collectAsState()
 
     LaunchedEffect(uiState.destination) {
@@ -165,6 +171,20 @@ fun AppNavGraph(startDestination: String) {
 
         composable(Screen.Profile.route) {
             ProfileScreen(navController = navController)
+        }
+
+        composable(Screen.RideHistory.route) { backStackEntry ->
+            val source = backStackEntry.arguments?.getString("source") ?: "passenger"
+            val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+
+            RideHistoryScreen(
+                userId = currentUserId,
+                source = source,
+                viewModel = rideNowViewModel,
+                onBackClick = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }
