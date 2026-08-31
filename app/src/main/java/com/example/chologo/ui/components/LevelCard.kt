@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Calendar
 
 @Composable
 fun LevelCard(
@@ -36,6 +37,13 @@ fun LevelCard(
     val border = Color.White.copy(alpha = 0.07f)
 
     val safeProgress = if (progress.isNaN()) 0f else progress.coerceIn(0f, 1f)
+
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val greeting = when {
+        hour < 12 -> "GOOD MORNING"
+        hour < 18 -> "GOOD AFTERNOON"
+        else -> "GOOD EVENING"
+    }
 
     Box(
         modifier = modifier
@@ -62,7 +70,7 @@ fun LevelCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = "GOOD MORNING",
+                text = greeting,
                 color = limeDim,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,

@@ -1,9 +1,19 @@
 package com.example.chologo.ui.common
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+private val DialogSurface = Color(0xFF161B20)
+private val TextHigh = Color(0xFFF1F5F9)
+private val TextMed = Color(0xFF8B96A5)
+private val AccentAmber = Color(0xFFFBBF24)
 
 @Composable
 fun CancelRideDialog(
@@ -22,36 +32,53 @@ fun CancelRideDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = DialogSurface,
+        shape = RoundedCornerShape(22.dp),
         title = {
-            Text(title)
+            Text(title, color = TextHigh, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("This will free up the spot for someone else. What's the reason?")
+                Text(
+                    "This will free up the spot for someone else. What's the reason?",
+                    color = TextMed,
+                    fontSize = 13.sp
+                )
 
-                reasons.forEach { item ->
-                    Row {
-                        RadioButton(
-                            selected = reason == item,
-                            onClick = { reason = item }
-                        )
-                        Text(item)
+                Column {
+                    reasons.forEach { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = reason == item,
+                                onClick = { reason = item },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = AccentAmber,
+                                    unselectedColor = TextMed
+                                )
+                            )
+                            Text(item, color = TextHigh, fontSize = 14.sp)
+                        }
                     }
                 }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(reason) }
+                onClick = { onConfirm(reason) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentAmber,
+                    contentColor = Color(0xFF0A0D0F)
+                )
             ) {
-                Text("Confirm Cancel")
+                Text("Confirm Cancel", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             OutlinedButton(
-                onClick = onDismiss
+                onClick = onDismiss,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMed)
             ) {
                 Text("Keep Ride")
             }

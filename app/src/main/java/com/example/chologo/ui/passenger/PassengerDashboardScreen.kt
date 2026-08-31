@@ -35,9 +35,11 @@ import com.example.chologo.navigation.Screen
 import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.common.CholoGoTabRow
 import com.example.chologo.ui.common.CholoGoTopBar
+import com.example.chologo.ui.common.GuestSignInBanner
 import com.example.chologo.ui.components.LevelCard
 import com.example.chologo.ui.components.LocalAdCarouselBanner
 import com.example.chologo.viewmodel.AuthViewModel
+import com.google.firebase.auth.FirebaseAuth
 
 private val DashboardBg = Color(0xFF0A0D0F)
 
@@ -51,19 +53,32 @@ fun PassengerDashboardScreen(
     val authState by authViewModel.uiState.collectAsState()
     val userRepository = remember { UserRepository() }
 
+    // Checked once per composition: this screen is now also the app's
+    // signed-out landing page, so reads/writes that need an account are
+    // gated behind this instead of assuming a user is always present.
+    val isGuest = remember { FirebaseAuth.getInstance().currentUser == null }
+
     var passengerXp by remember { mutableStateOf(0L) }
     var isLevelLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
-        authViewModel.loadCurrentUser()
+    val onRequireLogin: () -> Unit = {
+        navController.navigate(Screen.AuthChoice.route) {
+            launchSingleTop = true
+        }
+    }
 
-        userRepository.getCurrentUserData { result ->
-            result.onSuccess { user ->
-                passengerXp = user.xp
-                isLevelLoading = false
-            }.onFailure {
-                passengerXp = 0L
-                isLevelLoading = false
+    LaunchedEffect(Unit) {
+        if (!isGuest) {
+            authViewModel.loadCurrentUser()
+
+            userRepository.getCurrentUserData { result ->
+                result.onSuccess { user ->
+                    passengerXp = user.xp
+                    isLevelLoading = false
+                }.onFailure {
+                    passengerXp = 0L
+                    isLevelLoading = false
+                }
             }
         }
     }
@@ -113,11 +128,19 @@ fun PassengerDashboardScreen(
                         }
                     },
                     onRideHistoryClick = {
-                        navController.navigate(Screen.RideHistory.createRoute("passenger"))
+                        if (isGuest) {
+                            onRequireLogin()
+                        } else {
+                            navController.navigate(Screen.RideHistory.createRoute("passenger"))
+                        }
                     },
                     onProfileClick = {
-                        navController.navigate(Screen.Profile.createRoute("passenger")) {
-                            launchSingleTop = true
+                        if (isGuest) {
+                            onRequireLogin()
+                        } else {
+                            navController.navigate(Screen.Profile.createRoute("passenger")) {
+                                launchSingleTop = true
+                            }
                         }
                     }
                 )
@@ -128,14 +151,18 @@ fun PassengerDashboardScreen(
             }
 
             item {
-                LevelCard(
-                    level = if (isLevelLoading) 1 else level,
-                    levelTitle = if (isLevelLoading) "Campus Starter" else levelTitle,
-                    currentXp = if (isLevelLoading) 0L else passengerXp,
-                    xpNeededForNextLevel = if (isLevelLoading) 150L else xpNeededForNextLevel,
-                    progress = if (isLevelLoading) 0f else progress,
-                    userName = authState.userName.ifBlank { "Passenger" }
-                )
+                if (isGuest) {
+                    GuestSignInBanner(onSignInClick = onRequireLogin)
+                } else {
+                    LevelCard(
+                        level = if (isLevelLoading) 1 else level,
+                        levelTitle = if (isLevelLoading) "Campus Starter" else levelTitle,
+                        currentXp = if (isLevelLoading) 0L else passengerXp,
+                        xpNeededForNextLevel = if (isLevelLoading) 150L else xpNeededForNextLevel,
+                        progress = if (isLevelLoading) 0f else progress,
+                        userName = authState.userName.ifBlank { "Passenger" }
+                    )
+                }
             }
 
             item {
@@ -167,7 +194,8 @@ fun PassengerDashboardScreen(
                     Box {
                         when (tab) {
                             0 -> PassengerRideNowScreen(
-                                passengerName = authState.userName
+                                passengerName = authState.userName,
+                                onRequireLogin = onRequireLogin
                             )
 
                             1 -> PassengerTomorrowTab(
@@ -175,7 +203,8 @@ fun PassengerDashboardScreen(
                                 userRepository = userRepository,
                                 onXpUpdated = { updatedXp ->
                                     passengerXp = updatedXp
-                                }
+                                },
+                                onRequireLogin = onRequireLogin
                             )
                         }
                     }

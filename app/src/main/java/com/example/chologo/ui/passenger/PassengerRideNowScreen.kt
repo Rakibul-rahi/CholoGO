@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import com.example.chologo.ui.common.ReportDialog
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
+import com.google.firebase.auth.FirebaseAuth
 import java.util.Calendar
 
 private fun openDialer(context: android.content.Context, phoneNumber: String) {
@@ -46,6 +48,7 @@ private fun openDialer(context: android.content.Context, phoneNumber: String) {
 @Composable
 fun PassengerRideNowScreen(
     passengerName: String,
+    onRequireLogin: () -> Unit = {},
     authViewModel: AuthViewModel = viewModel(),
     rideNowViewModel: RideNowViewModel = viewModel()
 ) {
@@ -57,17 +60,20 @@ fun PassengerRideNowScreen(
 
     val nowCalendar = remember { Calendar.getInstance() }
 
-    var selectedLocation by remember { mutableStateOf("Mirpur 12") }
-    var selectedDestination by remember { mutableStateOf("AUST Gate") }
+    // Saveable, not just remember: a signed-out user can fill this form,
+    // get redirected to sign in mid-fill (see onRequireLogin below), and
+    // come back - their picks should still be here, not reset to defaults.
+    var selectedLocation by rememberSaveable { mutableStateOf("Mirpur 12") }
+    var selectedDestination by rememberSaveable { mutableStateOf("AUST Gate") }
 
     var showLocationMenu by remember { mutableStateOf(false) }
     var showDestinationMenu by remember { mutableStateOf(false) }
 
-    var departureHour by remember {
+    var departureHour by rememberSaveable {
         mutableIntStateOf(nowCalendar.get(Calendar.HOUR_OF_DAY))
     }
 
-    var departureMinute by remember {
+    var departureMinute by rememberSaveable {
         mutableIntStateOf(nowCalendar.get(Calendar.MINUTE))
     }
 
@@ -75,6 +81,27 @@ fun PassengerRideNowScreen(
 
     var showRatingDialog by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
+
+    fun resetDepartureTimeToNow() {
+        val now = Calendar.getInstance()
+        departureHour = now.get(Calendar.HOUR_OF_DAY)
+        departureMinute = now.get(Calendar.MINUTE)
+    }
+
+    // Whenever the search form is about to reappear on its own (a request
+    // finished with no rider ever matched, or was cancelled/expired), the
+    // departure time picked for that old attempt would otherwise sit there
+    // stale - possibly already in the past - instead of defaulting to now
+    // for a fresh search.
+    LaunchedEffect(passengerRequest?.status) {
+        when (passengerRequest?.status) {
+            null,
+            RideNowStatus.CANCELLED,
+            RideNowStatus.EXPIRED,
+            RideNowStatus.ISSUE_REPORTED -> resetDepartureTimeToNow()
+            else -> Unit
+        }
+    }
 
     val departureTimeText = formatTo12Hour(departureHour, departureMinute)
 
@@ -162,6 +189,11 @@ fun PassengerRideNowScreen(
             return
         }
 
+        if (FirebaseAuth.getInstance().currentUser == null) {
+            onRequireLogin()
+            return
+        }
+
         if (authState.userId.isBlank()) {
             Toast.makeText(
                 context,
@@ -183,6 +215,7 @@ fun PassengerRideNowScreen(
             passengerName = authState.userName.ifBlank {
                 passengerName.ifBlank { "Passenger" }
             },
+            passengerPhone = authState.userPhone,
             pickup = selectedLocation,
             destination = selectedDestination,
             tripTime = departureTimeText,
@@ -289,6 +322,10 @@ fun PassengerRideNowScreen(
                         },
                         onReportRide = {
                             showReportDialog = true
+                        },
+                        onFindAnotherRide = {
+                            rideNowViewModel.clearCompletedRequest()
+                            resetDepartureTimeToNow()
                         }
                     )
                 }
@@ -614,7 +651,8 @@ private fun PassengerActiveRideNowRequestCard(
 ) {
     PassengerSectionCard(
         title = "Ride Request Active",
-        subtitle = "You have already requested a Ride Now trip. Please wait for a rider or cancel this request."
+        subtitle = "You have already requested a Ride Now trip. Please wait for a rider or cancel this request.",
+        icon = "🔎"
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp)

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
@@ -82,6 +83,7 @@ fun LoginScreen(
     onGoogleSignInClick: () -> Unit = {},
     onSignupClick: () -> Unit = {},
     onForgotPasswordClick: () -> Unit = {},
+    onBackClick: (() -> Unit)? = null,
     isLoading: Boolean = false,
     externalErrorMessage: String? = null
 ) {
@@ -546,6 +548,27 @@ fun LoginScreen(
             }
 
             Spacer(Modifier.height(52.dp))
+        }
+
+        if (onBackClick != null) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(SteelDark)
+                    .border(width = 1.dp, color = Ghost.copy(alpha = 0.6f), shape = CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = SnowWhite,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

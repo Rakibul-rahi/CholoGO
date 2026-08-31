@@ -2,6 +2,9 @@
 
 package com.example.chologo.ui.rider
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -28,9 +31,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,11 +68,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.chologo.data.model.Ride
 import com.example.chologo.data.model.RideRequest
+import com.example.chologo.data.model.RideRequestStatus
 import com.example.chologo.navigation.Screen
+import com.example.chologo.notifications.TomorrowRideReminderScheduler
 import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.common.CancelRideDialog
 import com.example.chologo.ui.common.CholoGoTabRow
 import com.example.chologo.ui.common.CholoGoTopBar
+import com.example.chologo.ui.common.rememberNotificationPermissionRequester
 import com.example.chologo.ui.components.LevelCard
 import com.example.chologo.ui.components.LocalAdCarouselBanner
 import com.example.chologo.utils.LevelSystem
@@ -74,6 +85,19 @@ import com.example.chologo.viewmodel.TomorrowRideUiState
 import com.example.chologo.viewmodel.TomorrowRideViewModel
 
 private val DashboardBg = Color(0xFF0A0D0F)
+
+private fun openDialer(context: Context, phoneNumber: String) {
+    if (phoneNumber.isBlank() || phoneNumber == "N/A") {
+        Toast.makeText(context, "Phone number not available", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val intent = Intent(Intent.ACTION_DIAL).apply {
+        data = Uri.parse("tel:$phoneNumber")
+    }
+
+    context.startActivity(intent)
+}
 
 @Composable
 fun RiderDashboardScreen(
@@ -256,6 +280,18 @@ fun RiderDashboardScreen(
                                         reason = reason
                                     )
                                 },
+                                onStartTrip = { request ->
+                                    tomorrowRideViewModel.startTripAsRider(
+                                        requestId = request.requestId,
+                                        riderId = authState.userId
+                                    )
+                                },
+                                onCompleteTrip = { request ->
+                                    tomorrowRideViewModel.requestTripCompletionAsRider(
+                                        requestId = request.requestId,
+                                        riderId = authState.userId
+                                    )
+                                },
                                 onSaveSuccess = {
                                     refreshRiderXp()
                                     // No manual reload needed - the live
@@ -281,8 +317,58 @@ private fun RiderTomorrowDashboardContent(
     onDecline: (TomorrowMatchedRequest) -> Unit,
     onRemoveRide: (Ride) -> Unit,
     onCancelRide: (RideRequest, String) -> Unit,
+    onStartTrip: (RideRequest) -> Unit,
+    onCompleteTrip: (RideRequest) -> Unit,
     onSaveSuccess: () -> Unit
 ) {
+    val context = LocalContext.current
+    val requestNotificationPermission = rememberNotificationPermissionRequester()
+    var scheduledReminderKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // Same "1 hour before, is this still happening?" reminder as the
+    // passenger side, but keyed off the rider's own saved ride once a
+    // passenger has actually matched it (status != "active" means matched/
+    // full - see SavedRideCard's isMatched check below).
+    LaunchedEffect(uiState.savedRides, uiState.acceptedRequestsForRider) {
+        val matchedRides = uiState.savedRides.filter { it.status != "active" }
+        val currentKeys = matchedRides.map { "rider_${it.rideId}" }.toSet()
+
+        (scheduledReminderKeys - currentKeys).forEach { staleKey ->
+            TomorrowRideReminderScheduler.cancelReminder(context, staleKey)
+        }
+
+        if (matchedRides.isNotEmpty()) {
+            requestNotificationPermission()
+        }
+
+        matchedRides.forEach { ride ->
+            val matchedRequest = uiState.acceptedRequestsForRider
+                .firstOrNull { it.matchedRideId == ride.rideId }
+            val directionLabel = if (ride.tripDirection == "to_campus") "to campus" else "back home"
+            val passengerLabel = matchedRequest?.passengerName?.ifBlank { "your passenger" }
+                ?: "your passenger"
+
+            TomorrowRideReminderScheduler.scheduleReminder(
+                context = context,
+                uniqueKey = "rider_${ride.rideId}",
+                rideDate = ride.rideDate,
+                timeMinutes = ride.timeMinutes,
+                title = "Tomorrow Ride reminder",
+                message = "Your ride $directionLabel with $passengerLabel at ${ride.tripTime} is in 1 hour. Still happening?"
+            )
+        }
+
+        scheduledReminderKeys = currentKeys
+    }
+
+    // The "passenger available for your route" push is now sent
+    // server-side (see TomorrowRideViewModel.savePassengerPlan ->
+    // notifyMatchingRiders / server/src/index.ts's notify-match endpoint)
+    // right when the passenger submits a matching request - it reaches a
+    // backgrounded or killed app too, and the server dedups per
+    // (ride, request) pair itself. A local-only effect here would
+    // double-notify a rider whose app happens to be open.
+
     Column(
         modifier = Modifier.padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -294,7 +380,9 @@ private fun RiderTomorrowDashboardContent(
             onAccept = onAccept,
             onDecline = onDecline,
             onRemoveRide = onRemoveRide,
-            onCancelRide = onCancelRide
+            onCancelRide = onCancelRide,
+            onStartTrip = onStartTrip,
+            onCompleteTrip = onCompleteTrip
         )
 
         RiderTomorrowSetupTab(
@@ -327,7 +415,9 @@ fun RiderRequestsTab(
     onAccept: (TomorrowMatchedRequest) -> Unit,
     onDecline: (TomorrowMatchedRequest) -> Unit,
     onRemoveRide: (Ride) -> Unit,
-    onCancelRide: (RideRequest, String) -> Unit
+    onCancelRide: (RideRequest, String) -> Unit,
+    onStartTrip: (RideRequest) -> Unit,
+    onCompleteTrip: (RideRequest) -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -388,6 +478,12 @@ fun RiderRequestsTab(
                             },
                             onCancel = { reason ->
                                 matchedRequest?.let { onCancelRide(it, reason) }
+                            },
+                            onStartTrip = {
+                                matchedRequest?.let { onStartTrip(it) }
+                            },
+                            onCompleteTrip = {
+                                matchedRequest?.let { onCompleteTrip(it) }
                             }
                         )
                     }
@@ -569,9 +665,12 @@ fun SavedRideCard(
     matchedRequest: RideRequest?,
     isProcessing: Boolean,
     onRemove: () -> Unit,
-    onCancel: (String) -> Unit
+    onCancel: (String) -> Unit,
+    onStartTrip: () -> Unit,
+    onCompleteTrip: () -> Unit
 ) {
     var showCancelDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val isCampus = ride.tripDirection.equals("to_campus", ignoreCase = true)
     val accentColor = if (isCampus) AccentBlue else AccentEmerald
@@ -627,6 +726,10 @@ fun SavedRideCard(
                         text = "Passenger: ${matchedRequest.passengerName.ifBlank { "Passenger" }}",
                         color = TextMed
                     )
+                    Text(
+                        text = "Phone: ${matchedRequest.passengerPhone.ifBlank { "N/A" }}",
+                        color = TextMed
+                    )
                 }
             }
 
@@ -643,25 +746,119 @@ fun SavedRideCard(
         Spacer(modifier = Modifier.height(14.dp))
 
         if (isMatched) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(AccentAmber.copy(alpha = 0.08f))
-                    .border(
-                        1.dp,
-                        AccentAmber.copy(alpha = 0.18f),
-                        RoundedCornerShape(12.dp)
+            when (matchedRequest?.status) {
+                RideRequestStatus.START_PENDING_CONFIRMATION -> {
+                    RiderTripWaitingNotice(
+                        message = "Waiting for the passenger to confirm the trip started."
                     )
-                    .clickable(enabled = matchedRequest != null && !isProcessing) {
-                        showCancelDialog = true
+                }
+
+                RideRequestStatus.ONGOING -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        RiderFullWidthActionButton(
+                            text = "Call Passenger",
+                            icon = Icons.Default.Call,
+                            accent = AccentEmerald,
+                            enabled = true,
+                            onClick = {
+                                openDialer(context, matchedRequest?.passengerPhone.orEmpty())
+                            }
+                        )
+
+                        RiderFullWidthActionButton(
+                            text = if (isProcessing) "Completing..." else "Trip Completed",
+                            icon = Icons.Default.CheckCircle,
+                            accent = AccentBlue,
+                            enabled = !isProcessing,
+                            onClick = onCompleteTrip
+                        )
                     }
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = if (isProcessing) "Cancelling..." else "Cancel Ride",
-                    color = AccentAmber,
-                    fontWeight = FontWeight.Bold
-                )
+                }
+
+                RideRequestStatus.END_PENDING_CONFIRMATION -> {
+                    RiderTripWaitingNotice(
+                        message = "Waiting for the passenger to confirm the trip is complete."
+                    )
+                }
+
+                RideRequestStatus.COMPLETED -> {
+                    RiderTripWaitingNotice(
+                        message = "Trip completed.",
+                        accent = AccentEmerald
+                    )
+                }
+
+                else -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(AccentEmerald.copy(alpha = 0.08f))
+                                    .border(
+                                        1.dp,
+                                        AccentEmerald.copy(alpha = 0.18f),
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable(enabled = matchedRequest != null) {
+                                        openDialer(context, matchedRequest?.passengerPhone.orEmpty())
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Call,
+                                        contentDescription = null,
+                                        tint = AccentEmerald,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+
+                                    Text(
+                                        text = "Call Passenger",
+                                        color = AccentEmerald,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(AccentAmber.copy(alpha = 0.08f))
+                                    .border(
+                                        1.dp,
+                                        AccentAmber.copy(alpha = 0.18f),
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable(enabled = matchedRequest != null && !isProcessing) {
+                                        showCancelDialog = true
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (isProcessing) "Cancelling..." else "Cancel Ride",
+                                    color = AccentAmber,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        RiderFullWidthActionButton(
+                            text = if (isProcessing) "Starting..." else "Start Trip",
+                            icon = Icons.Default.PlayArrow,
+                            accent = AccentBlue,
+                            enabled = matchedRequest != null && !isProcessing,
+                            onClick = onStartTrip
+                        )
+                    }
+                }
             }
         } else {
             Box(
@@ -695,6 +892,79 @@ fun SavedRideCard(
                 showCancelDialog = false
                 onCancel(reason)
             }
+        )
+    }
+}
+
+@Composable
+private fun RiderFullWidthActionButton(
+    text: String,
+    icon: ImageVector,
+    accent: Color,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = if (enabled) 0.08f else 0.04f))
+            .border(
+                1.dp,
+                accent.copy(alpha = if (enabled) 0.18f else 0.08f),
+                RoundedCornerShape(12.dp)
+            )
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) accent else accent.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp)
+            )
+
+            Text(
+                text = text,
+                color = if (enabled) accent else accent.copy(alpha = 0.4f),
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun RiderTripWaitingNotice(
+    message: String,
+    accent: Color = AccentAmber
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.08f))
+            .border(1.dp, accent.copy(alpha = 0.18f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.HourglassEmpty,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(16.dp)
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Text(
+            text = message,
+            color = accent,
+            fontWeight = FontWeight.Medium
         )
     }
 }

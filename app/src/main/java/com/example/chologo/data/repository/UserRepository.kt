@@ -3,7 +3,9 @@ package com.example.chologo.repository
 import com.example.chologo.data.model.User
 import com.example.chologo.ui.auth.UserRole
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.messaging.FirebaseMessaging
 
 class UserRepository {
 
@@ -99,6 +101,64 @@ class UserRepository {
             }
     }
 
+    /**
+     * Reads users/{uid} without failing when the doc simply doesn't exist
+     * yet - distinct from a real error, needed to tell a brand-new Google
+     * sign-in (no doc) apart from a lookup failure.
+     */
+    fun getUserByUid(
+        uid: String,
+        onResult: (Result<User?>) -> Unit
+    ) {
+        db.collection("users")
+            .document(uid)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                if (!snapshot.exists()) {
+                    onResult(Result.success(null))
+                    return@addOnSuccessListener
+                }
+
+                onResult(Result.success(snapshot.toObject(User::class.java)))
+            }
+            .addOnFailureListener { e ->
+                onResult(Result.failure(e))
+            }
+    }
+
+    /**
+     * Creates the Firestore profile for a user who already authenticated
+     * via Google (Firebase Auth account exists, but no users/{uid} doc yet
+     * since Google never asked for a role or phone number).
+     */
+    fun completeGoogleProfile(
+        uid: String,
+        name: String,
+        email: String,
+        phone: String,
+        role: UserRole,
+        onResult: (Result<User>) -> Unit
+    ) {
+        val user = User(
+            uid = uid,
+            name = name,
+            email = email,
+            phone = phone,
+            role = role.name.lowercase(),
+            xp = 0L
+        )
+
+        db.collection("users")
+            .document(uid)
+            .set(user)
+            .addOnSuccessListener {
+                onResult(Result.success(user))
+            }
+            .addOnFailureListener { e ->
+                onResult(Result.failure(e))
+            }
+    }
+
     fun getCurrentUserData(
         onResult: (Result<User>) -> Unit
     ) {
@@ -166,5 +226,22 @@ class UserRepository {
 
     fun logout() {
         auth.signOut()
+    }
+
+    /**
+     * Fetches this device's current FCM registration token and saves it
+     * onto the user's doc, so the server can push notifications to it.
+     * Best-effort throughout - a failure here (no Google Play services,
+     * offline, etc.) must never block or surface as an error on
+     * login/signup, since push delivery isn't critical-path.
+     */
+    fun registerFcmTokenForUser(uid: String) {
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                db.collection("users").document(uid)
+                    .update("fcmTokens", FieldValue.arrayUnion(token))
+                    .addOnFailureListener { }
+            }
+            .addOnFailureListener { }
     }
 }

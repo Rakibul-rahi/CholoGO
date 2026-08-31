@@ -111,10 +111,24 @@ class RideNowRequestRepository(
                     )
                 )
 
+                // Take the rider fully offline, not just "available again" -
+                // a cancelled trip must not silently drop them back into the
+                // matching pool. They have to tap "Go Live" again to receive
+                // new requests. "status": "inactive" is what actually
+                // enforces that (isRiderLive and acceptRideNowRequest's
+                // guard both require status == "active"); "available" stays
+                // true here because this write runs as the passenger, and
+                // the live_rides security rule only lets a passenger set
+                // available == true (never false, to stop a passenger from
+                // griefing an unrelated rider's doc) - see the field-name
+                // note in acceptRideNowRequest below for why it's
+                // "available"/"liveNow" and not "isAvailable"/"isLiveNow".
                 transaction.update(
                     rideDoc,
                     mapOf(
-                        "isAvailable" to true,
+                        "status" to "inactive",
+                        "available" to true,
+                        "liveNow" to false,
                         "currentRequestId" to "",
                         "lastUpdatedAt" to now
                     )
@@ -297,7 +311,7 @@ class RideNowRequestRepository(
                 transaction.update(
                     rideDoc,
                     mapOf(
-                        "isAvailable" to false,
+                        "available" to false,
                         "currentRequestId" to requestId,
                         "lastUpdatedAt" to now
                     )
@@ -447,10 +461,19 @@ class RideNowRequestRepository(
                     )
                 )
 
+                // Take the rider fully offline on completion, not just
+                // "available again" - otherwise they silently stay live and
+                // start matching new passengers immediately with no explicit
+                // "Go Live" action. They must go live again to receive more
+                // requests. "status": "inactive" is what enforces that; see
+                // the field-name/available==true note in
+                // cancelAcceptedRideNowTrip above.
                 transaction.update(
                     rideDoc,
                     mapOf(
-                        "isAvailable" to true,
+                        "status" to "inactive",
+                        "available" to true,
+                        "liveNow" to false,
                         "currentRequestId" to "",
                         "lastUpdatedAt" to completedAt
                     )
@@ -519,10 +542,16 @@ class RideNowRequestRepository(
                     )
                 )
 
+                // Same as completion/cancellation: take the rider fully
+                // offline rather than leaving them silently live. See the
+                // field-name/available==true note in
+                // cancelAcceptedRideNowTrip above.
                 transaction.update(
                     rideDoc,
                     mapOf(
-                        "isAvailable" to true,
+                        "status" to "inactive",
+                        "available" to true,
+                        "liveNow" to false,
                         "currentRequestId" to "",
                         "lastUpdatedAt" to now
                     )

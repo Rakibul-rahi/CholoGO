@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -31,7 +32,8 @@ import com.example.chologo.data.model.RideNowRequest
 fun PassengerRideCompletedCard(
     request: RideNowRequest,
     onRateRide: (() -> Unit)? = null,
-    onReportRide: (() -> Unit)? = null
+    onReportRide: (() -> Unit)? = null,
+    onFindAnotherRide: (() -> Unit)? = null
 ) {
     val ratingDisabled =
         request.riderRated || request.issueReported
@@ -146,6 +148,24 @@ fun PassengerRideCompletedCard(
                         else
                             "Report Rider"
                     )
+                }
+            }
+
+            if (onFindAnotherRide != null) {
+                HorizontalDivider()
+
+                Button(
+                    onClick = onFindAnotherRide,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(text = "Find Another Ride")
                 }
             }
         }

@@ -254,11 +254,7 @@ fun RiderRideNowScreen(
                     ).show()
                 },
                 onCallPassenger = {
-                    Toast.makeText(
-                        context,
-                        "Passenger phone is not available in RideNowRequest yet.",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    openDialer(context, passengerRequest?.passengerPhone.orEmpty())
                 }
             )
         }

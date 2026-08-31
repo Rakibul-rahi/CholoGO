@@ -1,0 +1,580 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myUid() {
+      return request.auth.uid;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && myUid() == uid;
+    }
+
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(myUid()));
+    }
+
+    function myRole() {
+      return myUserDoc().data.role;
+    }
+
+    function isPassenger() {
+      return signedIn() && myRole() == "passenger";
+    }
+
+    function isRider() {
+      return signedIn() && myRole() == "rider";
+    }
+
+    match /users/{userId} {
+
+      // The owner may edit their own profile fields, but never the fields
+      // that are supposed to be earned/assigned by others - role (which
+      // every isPassenger()/isRider() check in this file trusts blindly),
+      // and the rating/report counters below. xp is included because it's
+      // always written to the caller's own doc by UserRepository.addXpToUser
+      // - there's no cross-user XP write path today.
+      function ownerProfileEdit() {
+        return isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["name", "phone", "email", "university", "studentId", "homeLocation", "xp", "fcmTokens"]);
+      }
+
+      // Backs RideNowFeedbackRepository.submitRideRating(): a rating from
+      // someone else bumps ratingCount by exactly one and moves the average
+      // by an amount consistent with a single new 1-5 star vote (a small
+      // epsilon absorbs floating point round-trip noise between the
+      // client's math and this recomputation - it does not widen how much
+      // a single rating can move the average). Nobody may rate themselves.
+      function isValidRatingBump() {
+        let oldCount = resource.data.get('ratingCount', 0);
+        let oldAvg = resource.data.get('ratingAverage', 0);
+        let newCount = request.resource.data.get('ratingCount', 0);
+        let newAvg = request.resource.data.get('ratingAverage', 0);
+        let oldTotal = oldAvg * oldCount;
+        let newTotal = newAvg * newCount;
+
+        return signedIn()
+          && userId != myUid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["ratingAverage", "ratingCount"])
+          && newCount == oldCount + 1
+          && newTotal >= oldTotal + 1 - 0.05
+          && newTotal <= oldTotal + 5 + 0.05;
+      }
+
+      // Backs RideNowFeedbackRepository.submitRideReport(): a report from
+      // someone else bumps reportCount by exactly one. Nobody may report
+      // themselves.
+      function isValidReportBump() {
+        let oldReportCount = resource.data.get('reportCount', 0);
+        let newReportCount = request.resource.data.get('reportCount', 0);
+
+        return signedIn()
+          && userId != myUid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["reportCount"])
+          && newReportCount == oldReportCount + 1;
+      }
+
+      allow create: if isOwner(userId);
+
+      allow read: if signedIn();
+
+      allow update: if ownerProfileEdit()
+        || isValidRatingBump()
+        || isValidReportBump();
+
+      allow delete: if isOwner(userId);
+    }
+
+    // ---------- Tomorrow flow: passenger-side pre-scheduled requests ----------
+    match /ride_requests/{requestId} {
+
+      // A passenger may only edit their own request, and only while it's
+      // still "pending" - once a rider has accepted it, the passenger can
+      // no longer touch it via a normal update (e.g. can't forge
+      // status/matchedRiderId/matchedRiderPhone on their own document).
+      function passengerOwnRequestEdit() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.status == "pending"
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.status == "pending";
+      }
+
+      // upsertPassengerRequest() also resubmits a request the passenger
+      // already cancelled, or that a rider backed out of after accepting -
+      // otherwise a cancelled leg could never return to "pending", so no
+      // other rider could ever see or match it again.
+      function passengerResubmitCancelled() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.status == "cancelled"
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.status == "pending";
+      }
+
+      // A rider may add themselves to rejectedByRiderIds (decline) without
+      // touching status or any matched* field.
+      function riderDeclineOnly() {
+        return isRider()
+          && request.resource.data.rejectedByRiderIds.hasAll(resource.data.rejectedByRiderIds)
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.matchedRiderId == resource.data.matchedRiderId;
+      }
+
+      // A rider may accept a still-pending request, but only by matching
+      // themselves - they cannot set matchedRiderId to any other uid, and
+      // this is the only path allowed to move status out of "pending".
+      function riderAccept() {
+        return isRider()
+          && resource.data.status == "pending"
+          && request.resource.data.status == "accepted"
+          && request.resource.data.matchedRiderId == myUid();
+      }
+
+      // A rider may cancel a request already matched to them. Both
+      // documents involved (this request, and their own ride) are within
+      // the rider's ownership, so this can be finalized directly here -
+      // unlike a passenger-initiated cancellation, which needs a Cloud
+      // Function since it touches the rider's ride document.
+      function riderCancelOwnAcceptedRequest() {
+        return isRider()
+          && resource.data.status == "accepted"
+          && resource.data.matchedRiderId == myUid()
+          && request.resource.data.status == "cancelled"
+          && request.resource.data.matchedRiderId == resource.data.matchedRiderId;
+      }
+
+      // ---------- Trip lifecycle (mirrors ride_now_requests) ----------
+
+      // riderStartTrip(): only the matched rider.
+      function riderStartTrip() {
+        return isRider()
+          && resource.data.status == "accepted"
+          && resource.data.matchedRiderId == myUid()
+          && request.resource.data.status == "start_pending_confirmation"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideStartedByRider", "rideConfirmedByPassenger", "startedAt"]);
+      }
+
+      // passengerConfirmTripStarted(): only the owning passenger.
+      function passengerConfirmStart() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.status == "start_pending_confirmation"
+          && request.resource.data.status == "ongoing"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideConfirmedByPassenger", "startedAt"]);
+      }
+
+      // passengerRejectTripStarted(): only the owning passenger.
+      function passengerRejectStart() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.status == "start_pending_confirmation"
+          && request.resource.data.status == "accepted"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideStartedByRider", "rideConfirmedByPassenger", "startedAt"]);
+      }
+
+      // riderRequestTripCompletion(): only the matched rider.
+      function riderRequestCompletion() {
+        return isRider()
+          && resource.data.status == "ongoing"
+          && resource.data.matchedRiderId == myUid()
+          && request.resource.data.status == "end_pending_confirmation"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideEndedByRider", "rideCompletedByPassenger", "completedAt"]);
+      }
+
+      // passengerConfirmTripCompleted(): only the owning passenger.
+      function passengerConfirmCompletion() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.status == "end_pending_confirmation"
+          && request.resource.data.status == "completed"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideCompletedByPassenger", "completedAt"]);
+      }
+
+      // TomorrowFeedbackRepository.submitRideRating(): only the owning
+      // passenger, one star rating, one time.
+      function passengerSubmitRating() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.riderRated == false
+          && resource.data.issueReported == false
+          && request.resource.data.riderRated == true
+          && request.resource.data.rating is int
+          && request.resource.data.rating >= 1
+          && request.resource.data.rating <= 5
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["riderRated", "rating", "ratedAt"]);
+      }
+
+      // TomorrowFeedbackRepository.submitRideReport(): only the owning
+      // passenger, one time.
+      function passengerSubmitReport() {
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && resource.data.issueReported == false
+          && resource.data.riderRated == false
+          && request.resource.data.issueReported == true
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["issueReported", "reportReason", "reportDetails", "reportedAt"]);
+      }
+
+      allow create: if isPassenger()
+        && request.resource.data.userId == myUid()
+        && request.resource.data.status == "pending";
+
+      allow read: if
+        (isPassenger() && resource.data.userId == myUid())
+        || isRider();
+
+      // A passenger's own cancellation of an accepted request is now
+      // handled entirely by the standalone REST server (via Admin SDK,
+      // which bypasses these rules), not by a direct client write - so
+      // there's deliberately no rule branch here permitting it. Keeping
+      // rules minimal to what the client actually needs to do directly.
+
+      allow update: if passengerOwnRequestEdit()
+        || passengerResubmitCancelled()
+        || riderDeclineOnly()
+        || riderAccept()
+        || riderCancelOwnAcceptedRequest()
+        || riderStartTrip()
+        || passengerConfirmStart()
+        || passengerRejectStart()
+        || riderRequestCompletion()
+        || passengerConfirmCompletion()
+        || passengerSubmitRating()
+        || passengerSubmitReport();
+
+      // Deleting an already-accepted request would orphan the rider's seat
+      // count with nothing to ever restore it. Block until a proper
+      // cancellation flow (that also releases the matched ride's seat)
+      // exists.
+      allow delete: if isPassenger()
+        && resource.data.userId == myUid()
+        && resource.data.status == "pending";
+    }
+
+    // ---------- Tomorrow flow: rider-side pre-scheduled rides ----------
+    match /rides/{rideId} {
+      allow create: if isRider()
+        && request.resource.data.riderId == myUid();
+
+      // Signed-out browsing: anyone may read a still-open ("active")
+      // scheduled ride so the app can show real listings before login.
+      // Full/cancelled rides, and anything for a passenger's own matching
+      // logic, still go through the isPassenger()/isRider() branches below.
+      allow read: if
+        (isRider() && resource.data.riderId == myUid())
+        || isPassenger()
+        || resource.data.status == "active";
+
+      allow update: if isRider()
+        && resource.data.riderId == myUid();
+
+      // Same reasoning as ride_requests above: an already-matched ("full")
+      // ride can't be deleted out from under an accepted passenger. A
+      // still-"active" (unmatched) ride can be freely removed/edited.
+      allow delete: if isRider()
+        && resource.data.riderId == myUid()
+        && resource.data.status == "active";
+    }
+
+    // ---------- Ride Now (instant matching) ----------
+    match /live_rides/{rideId} {
+      allow create: if isRider()
+        && request.resource.data.riderId == myUid();
+
+      // Signed-out browsing: anyone may read a currently live, open ride so
+      // the app can show real listings before login.
+      //
+      // NOTE: Firestore strips the "is" prefix from Kotlin boolean field
+      // names (LiveRide.isLiveNow / isAvailable are stored as "liveNow" /
+      // "available" - see RideNowRequestRepository.acceptRideNowRequest for
+      // the full explanation), so rules must reference "liveNow"/"available",
+      // not the Kotlin property names.
+      allow read: if
+        (isRider() && resource.data.riderId == myUid())
+        || isPassenger()
+        || (resource.data.status == "active" && resource.data.liveNow == true);
+
+      allow update: if
+        (
+          isRider()
+          && resource.data.riderId == myUid()
+        )
+        ||
+        (
+          isPassenger()
+          && request.resource.data.available == true
+          && request.resource.data.currentRequestId == ""
+        );
+
+      allow delete: if isRider()
+        && resource.data.riderId == myUid();
+    }
+
+    match /ride_now_requests/{requestId} {
+
+      // Mirrors every write RideNowRequestRepository / RideNowFeedbackRepository
+      // actually performs, one function per transition, each pinning exactly
+      // which keys may move. Unlike the old blanket "isPassenger(own) ||
+      // isRider()" rule, a rider can no longer touch a request they aren't
+      // matched to, and neither side can smuggle unrelated field edits into
+      // an accept/cancel/start/complete/report/rate call.
+
+      function passengerCreate() {
+        return isPassenger()
+          && request.resource.data.passengerId == myUid()
+          && request.resource.data.status == "searching"
+          && request.resource.data.matchedRiderId == ""
+          && request.resource.data.matchedRideId == ""
+          && request.resource.data.riderRated == false
+          && request.resource.data.issueReported == false;
+      }
+
+      // cancelRideNowRequest(): passenger backs out before any rider has
+      // matched.
+      function passengerCancelSearching() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.status in ["searching", "notified"]
+          && request.resource.data.status == "cancelled"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "cancelledAt"]);
+      }
+
+      // cancelAcceptedRideNowTrip(): passenger backs out of an already
+      // matched trip.
+      function passengerCancelAccepted() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.status in
+            ["accepted", "start_pending_confirmation", "ongoing", "end_pending_confirmation"]
+          && request.resource.data.status == "cancelled"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "cancelledAt"]);
+      }
+
+      // expireRequestIfNeeded(): either side can flip a stale, still-unmatched
+      // request to expired - a rider triggers it while browsing the matching
+      // list, the passenger while watching their own request.
+      function expireSearching() {
+        return (isRider() || (isPassenger() && resource.data.passengerId == myUid()))
+          && resource.data.status == "searching"
+          && request.resource.data.status == "expired"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "expiredAt"]);
+      }
+
+      // acceptRideNowRequest(): a rider may match a still-searching request
+      // only to themselves.
+      function riderAccept() {
+        return isRider()
+          && resource.data.status == "searching"
+          && request.resource.data.status == "accepted"
+          && request.resource.data.matchedRiderId == myUid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              "status", "matchedRideId", "matchedRiderId", "matchedRiderName",
+              "matchedRiderPhone", "acceptedAt", "rideStartedByRider",
+              "rideConfirmedByPassenger", "rideEndedByRider",
+              "rideCompletedByPassenger", "startedAt", "completedAt"
+            ]);
+      }
+
+      // riderStartRideNowTrip(): only the matched rider.
+      function riderStart() {
+        return isRider()
+          && resource.data.status == "accepted"
+          && resource.data.matchedRiderId == myUid()
+          && request.resource.data.status == "start_pending_confirmation"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideStartedByRider", "rideConfirmedByPassenger", "startedAt"]);
+      }
+
+      // passengerConfirmRideNowStarted(): only the owning passenger.
+      function passengerConfirmStart() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.status == "start_pending_confirmation"
+          && request.resource.data.status == "ongoing"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideConfirmedByPassenger", "startedAt"]);
+      }
+
+      // passengerRejectRideNowStarted(): only the owning passenger.
+      function passengerRejectStart() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.status == "start_pending_confirmation"
+          && request.resource.data.status == "accepted"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideStartedByRider", "rideConfirmedByPassenger", "startedAt"]);
+      }
+
+      // riderRequestRideNowCompletion(): only the matched rider.
+      function riderRequestCompletion() {
+        return isRider()
+          && resource.data.status == "ongoing"
+          && resource.data.matchedRiderId == myUid()
+          && request.resource.data.status == "end_pending_confirmation"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideEndedByRider", "rideCompletedByPassenger", "completedAt"]);
+      }
+
+      // passengerConfirmRideNowCompleted(): only the owning passenger.
+      function passengerConfirmCompletion() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.status == "end_pending_confirmation"
+          && request.resource.data.status == "completed"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "rideCompletedByPassenger", "completedAt"]);
+      }
+
+      // passengerReportRideNowIssue(): only the owning passenger, and only
+      // on a trip that isn't already finished.
+      function passengerReportIssue() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && !(resource.data.status in ["completed", "cancelled", "expired", "issue_reported"])
+          && request.resource.data.status == "issue_reported"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "issueReportedAt"]);
+      }
+
+      // submitRideRating(): only the owning passenger, one star rating,
+      // one time.
+      function passengerSubmitRating() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.riderRated == false
+          && resource.data.issueReported == false
+          && request.resource.data.riderRated == true
+          && request.resource.data.rating is int
+          && request.resource.data.rating >= 1
+          && request.resource.data.rating <= 5
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["riderRated", "rating", "ratedAt"]);
+      }
+
+      // submitRideReport(): only the owning passenger, one time.
+      function passengerSubmitReport() {
+        return isPassenger()
+          && resource.data.passengerId == myUid()
+          && resource.data.issueReported == false
+          && resource.data.riderRated == false
+          && request.resource.data.issueReported == true
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["issueReported", "reportReason", "reportDetails", "reportedAt"]);
+      }
+
+      allow create: if passengerCreate();
+
+      allow read: if
+        (isPassenger() && resource.data.passengerId == myUid())
+        || isRider();
+
+      allow update: if passengerCancelSearching()
+        || passengerCancelAccepted()
+        || expireSearching()
+        || riderAccept()
+        || riderStart()
+        || passengerConfirmStart()
+        || passengerRejectStart()
+        || riderRequestCompletion()
+        || passengerConfirmCompletion()
+        || passengerReportIssue()
+        || passengerSubmitRating()
+        || passengerSubmitReport();
+
+      allow delete: if isPassenger()
+        && resource.data.passengerId == myUid()
+        && resource.data.status == "searching";
+    }
+
+    match /ride_history/{historyId} {
+      allow create: if signedIn()
+        && (
+          request.resource.data.passengerId == myUid()
+          || request.resource.data.riderId == myUid()
+        )
+        && request.resource.data.status == "completed"
+        && request.resource.data.rideType in ["ride_now", "tomorrow"];
+
+      allow read: if signedIn()
+        && (
+          resource.data.passengerId == myUid()
+          || resource.data.riderId == myUid()
+        );
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /ride_ratings/{ratingId} {
+      allow create: if signedIn()
+        && request.resource.data.ratedBy == myUid()
+        && request.resource.data.ratedTo is string
+        && request.resource.data.ratedTo.size() > 0
+        && request.resource.data.requestId is string
+        && request.resource.data.requestId.size() > 0
+        && request.resource.data.stars is int
+        && request.resource.data.stars >= 1
+        && request.resource.data.stars <= 5;
+
+      allow read: if signedIn();
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /ride_reports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reportedBy == myUid()
+        && request.resource.data.reportedUserId is string
+        && request.resource.data.reportedUserId.size() > 0
+        && request.resource.data.requestId is string
+        && request.resource.data.requestId.size() > 0
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.status == "pending";
+
+      allow read: if signedIn();
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---------- In-app notifications ----------
+    // Written only by the standalone REST server via the Admin SDK
+    // (which bypasses these rules entirely) - e.g. when the cancellation
+    // endpoint notifies the other party. Clients only ever read their own
+    // notifications and mark them as read; they can never create, forge,
+    // or delete one.
+    match /notifications/{notificationId} {
+      allow read: if signedIn()
+        && resource.data.userId == myUid();
+
+      allow update: if signedIn()
+        && resource.data.userId == myUid()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(["read"]);
+
+      allow create: if false;
+      allow delete: if false;
+    }
+  }
+}

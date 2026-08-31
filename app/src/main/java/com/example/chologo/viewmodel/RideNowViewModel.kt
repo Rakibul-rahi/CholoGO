@@ -63,6 +63,7 @@ class RideNowViewModel(
     fun createRideNowRequest(
         passengerId: String,
         passengerName: String,
+        passengerPhone: String,
         pickup: String,
         destination: String,
         tripTime: String,
@@ -77,6 +78,7 @@ class RideNowViewModel(
             val request = RideNowRequest(
                 passengerId = passengerId,
                 passengerName = passengerName,
+                passengerPhone = passengerPhone,
                 pickup = pickup,
                 destination = destination,
                 tripTime = tripTime,
@@ -532,6 +534,27 @@ class RideNowViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * Called when the passenger explicitly asks to search for a new Ride
+     * Now trip after their last one finished (completed, cancelled,
+     * expired, or had an issue reported). Completion in particular has no
+     * other way back to the search form: the finished request document
+     * never becomes null on its own (it just sits at status COMPLETED
+     * forever), so without this the UI would be stuck showing the
+     * "Ride Completed" card indefinitely. Stopping the listener here
+     * matters too - otherwise the still-attached by-ID listener on the
+     * finished request would immediately re-deliver the same COMPLETED
+     * snapshot and undo the reset.
+     */
+    fun clearCompletedRequest() {
+        stopPassengerRequestListener()
+        _uiState.value = _uiState.value.copy(
+            passengerRequest = null,
+            currentRequestId = null,
+            isRequestActive = false
+        )
     }
 
     fun checkRequestExpiry() {

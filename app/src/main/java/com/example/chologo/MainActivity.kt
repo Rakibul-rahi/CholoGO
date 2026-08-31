@@ -11,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.chologo.navigation.AppNavGraph
 import com.example.chologo.navigation.Screen
+import com.example.chologo.notifications.ReminderNotifications
+import com.example.chologo.ui.theme.CholoGOTheme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
@@ -19,8 +21,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Registering the channel is a cheap no-op if it already exists -
+        // safe to do unconditionally on every launch, before anything ever
+        // tries to schedule a Tomorrow Ride reminder.
+        ReminderNotifications.ensureChannel(applicationContext)
+
         setContent {
-            MainAppEntry()
+            // Every screen in the app is hand-styled and ignores this
+            // theme already, EXCEPT the few plain Material3 components
+            // (AlertDialogs, default ripples) that read MaterialTheme
+            // colors - without this wrapper they'd fall back to Compose's
+            // raw default scheme instead of CholoGO's dark/lime brand.
+            CholoGOTheme {
+                MainAppEntry()
+            }
         }
     }
 }
@@ -35,7 +49,11 @@ fun MainAppEntry() {
         val currentUser = auth.currentUser
 
         startDestination = if (currentUser == null) {
-            Screen.AuthChoice.route
+            // No account yet: let people see the app (browse rides) before
+            // asking them to sign in. Sign-in is prompted only when they
+            // try to do something that needs an account (save a Tomorrow
+            // Ride, request a Ride Now, view profile/history).
+            Screen.PassengerHome.route
         } else {
             try {
                 val document = db.collection("users")
@@ -48,7 +66,10 @@ fun MainAppEntry() {
                 when {
                     role.equals("passenger", ignoreCase = true) -> Screen.PassengerHome.route
                     role.equals("rider", ignoreCase = true) -> Screen.RiderHome.route
-                    else -> Screen.AuthChoice.route
+                    // Authenticated (e.g. a first-time Google sign-in) but no
+                    // role yet - AuthChoice would be a dead end since
+                    // "Login" only makes sense for a signed-out user.
+                    else -> Screen.RoleSelection.route
                 }
             } catch (e: Exception) {
                 Screen.RoleSelection.route

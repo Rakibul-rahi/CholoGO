@@ -18,4 +18,25 @@ object RideRequestStatus {
      * job and moves this to CANCELLED. See TomorrowRideRepository.
      */
     const val CANCEL_REQUESTED_BY_PASSENGER = "cancel_requested_by_passenger"
+
+    /** Rider pressed Start Trip. Waiting for passenger confirmation. */
+    const val START_PENDING_CONFIRMATION = "start_pending_confirmation"
+
+    /** Passenger confirmed the trip started. Ride is currently active. */
+    const val ONGOING = "ongoing"
+
+    /** Rider pressed Trip Completed. Waiting for passenger confirmation. */
+    const val END_PENDING_CONFIRMATION = "end_pending_confirmation"
+
+    /** Passenger confirmed safe arrival. */
+    const val COMPLETED = "completed"
+
+    /** Statuses in which a matched trip is still live/in-progress. */
+    val ACTIVE_LIFECYCLE_STATUSES = listOf(
+        ACCEPTED,
+        START_PENDING_CONFIRMATION,
+        ONGOING,
+        END_PENDING_CONFIRMATION,
+        COMPLETED
+    )
 }

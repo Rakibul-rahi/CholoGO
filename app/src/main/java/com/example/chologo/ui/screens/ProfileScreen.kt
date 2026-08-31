@@ -246,7 +246,11 @@ fun ProfileScreen(navController: NavController) {
                     val prefs = navController.context.getSharedPreferences("chologo_prefs", Context.MODE_PRIVATE)
                     prefs.edit().remove("user_role").apply()
 
-                    navController.navigate(Screen.AuthChoice.route) {
+                    // Land back on the guest-browsable Passenger dashboard,
+                    // same as a fresh signed-out launch (see MainActivity) -
+                    // logging out shouldn't force the sign-in wall when the
+                    // app otherwise lets people browse without an account.
+                    navController.navigate(Screen.PassengerHome.route) {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }

@@ -4,7 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -25,6 +27,7 @@ import com.google.firebase.auth.FirebaseAuth
 @Composable
 fun AppNavGraph(startDestination: String) {
     val navController = rememberNavController()
+    val context = LocalContext.current
 
     val authViewModel: AuthViewModel = viewModel()
     val rideNowViewModel: RideNowViewModel = viewModel()
@@ -35,7 +38,12 @@ fun AppNavGraph(startDestination: String) {
         when (uiState.destination) {
             Screen.PassengerHome.route -> {
                 navController.navigate(Screen.PassengerHome.route) {
-                    popUpTo(Screen.AuthChoice.route) {
+                    // Clear the whole back stack (not just up to AuthChoice) -
+                    // a signed-out user may have reached AuthChoice from a
+                    // Tomorrow Ride/Ride Now prompt while already sitting on
+                    // PassengerHome, and that stale guest entry shouldn't
+                    // linger underneath the freshly-authenticated one.
+                    popUpTo(navController.graph.findStartDestination().id) {
                         inclusive = true
                     }
                     launchSingleTop = true
@@ -46,7 +54,21 @@ fun AppNavGraph(startDestination: String) {
 
             Screen.RiderHome.route -> {
                 navController.navigate(Screen.RiderHome.route) {
-                    popUpTo(Screen.AuthChoice.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        inclusive = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+                authViewModel.clearNavigation()
+            }
+
+            Screen.RoleSelection.route -> {
+                // A first-time Google sign-in: authenticated, but no
+                // Firestore profile yet. Clear the login/signup back stack
+                // so there's nothing to navigate "back" into mid-completion.
+                navController.navigate(Screen.RoleSelection.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
                         inclusive = true
                     }
                     launchSingleTop = true
@@ -72,6 +94,15 @@ fun AppNavGraph(startDestination: String) {
                     navController.navigate(Screen.Signup.route) {
                         launchSingleTop = true
                     }
+                },
+                // Only offer a way back when there's actually somewhere to
+                // return to (a guest who browsed here) - not when this is
+                // genuinely the graph's start destination (e.g. a signed-in
+                // account with no role set yet).
+                onBackClick = if (navController.previousBackStackEntry != null) {
+                    { navController.popBackStack() }
+                } else {
+                    null
                 }
             )
         }
@@ -82,7 +113,7 @@ fun AppNavGraph(startDestination: String) {
                     authViewModel.login(email, password)
                 },
                 onGoogleSignInClick = {
-                    // Add Google sign-in logic here later if needed
+                    authViewModel.signInWithGoogle(context)
                 },
                 onSignupClick = {
                     navController.navigate(Screen.Signup.route) {
@@ -93,6 +124,11 @@ fun AppNavGraph(startDestination: String) {
                     navController.navigate(Screen.ForgotPassword.route) {
                         launchSingleTop = true
                     }
+                },
+                onBackClick = if (navController.previousBackStackEntry != null) {
+                    { navController.popBackStack() }
+                } else {
+                    null
                 },
                 isLoading = uiState.isLoading,
                 externalErrorMessage = uiState.errorMessage
@@ -126,6 +162,11 @@ fun AppNavGraph(startDestination: String) {
                         launchSingleTop = true
                     }
                 },
+                onBackClick = if (navController.previousBackStackEntry != null) {
+                    { navController.popBackStack() }
+                } else {
+                    null
+                },
                 isLoading = uiState.isLoading,
                 externalErrorMessage = uiState.errorMessage
             )
@@ -133,24 +174,11 @@ fun AppNavGraph(startDestination: String) {
 
         composable(Screen.RoleSelection.route) {
             RoleSelectionScreen(
-                onPassengerSelected = {
-                    navController.navigate(Screen.PassengerHome.route) {
-                        popUpTo(Screen.RoleSelection.route) {
-                            inclusive = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+                onCompleteProfile = { role, phone ->
+                    authViewModel.completeGoogleProfile(role, phone)
                 },
-                onRiderSelected = {
-                    navController.navigate(Screen.RiderHome.route) {
-                        popUpTo(Screen.RoleSelection.route) {
-                            inclusive = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
+                isLoading = uiState.isLoading,
+                externalErrorMessage = uiState.errorMessage
             )
         }
 

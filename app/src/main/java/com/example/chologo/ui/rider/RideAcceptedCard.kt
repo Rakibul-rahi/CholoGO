@@ -242,7 +242,7 @@ private fun RideAcceptedInfoSection(
         RideAcceptedInfoRow(
             label = if (isRider) "Passenger contact" else "Rider contact",
             value = if (isRider) {
-                "Available after passengerPhone field"
+                request.passengerPhone.ifBlank { "N/A" }
             } else {
                 request.matchedRiderPhone.ifBlank { "N/A" }
             }

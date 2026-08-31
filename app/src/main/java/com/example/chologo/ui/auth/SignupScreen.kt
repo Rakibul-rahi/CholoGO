@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Email
@@ -113,6 +115,31 @@ enum class UserRole {
     RIDER
 }
 
+// ─── Signup validation ────────────────────────────────────────────────────────
+private val AllowedEmailDomains = setOf("aust.edu", "gmail.com", "yahoo.com", "hotmail.com")
+
+private fun isAllowedEmailDomain(email: String): Boolean {
+    val domain = email.trim().substringAfterLast('@', "").lowercase()
+    return domain in AllowedEmailDomains
+}
+
+private fun isValidSignupName(name: String): Boolean {
+    val trimmed = name.trim()
+    val letters = trimmed.filter { it.isLetter() }
+    if (letters.length < 2) return false
+    return !letters.all { it.equals(letters[0], ignoreCase = true) }
+}
+
+internal fun isValidSignupPhone(phone: String): Boolean {
+    val trimmed = phone.trim().replace(" ", "").replace("-", "")
+    return if (trimmed.startsWith("+88")) {
+        val rest = trimmed.removePrefix("+88")
+        rest.length == 11 && rest.all { it.isDigit() }
+    } else {
+        trimmed.length == 11 && trimmed.all { it.isDigit() }
+    }
+}
+
 // ─── Screen ──────────────────────────────────────────────────────────────────
 @Composable
 fun SignupScreen(
@@ -127,6 +154,7 @@ fun SignupScreen(
         password: String
     ) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onLoginClick: () -> Unit = {},
+    onBackClick: (() -> Unit)? = null,
     isLoading: Boolean = false,
     externalErrorMessage: String? = null
 ) {
@@ -579,14 +607,22 @@ fun SignupScreen(
                                 errorText = "Please fill in all fields"
                             }
 
+                            !isValidSignupName(name) -> {
+                                errorText = "Please enter a valid full name"
+                            }
+
                             !android.util.Patterns.EMAIL_ADDRESS
                                 .matcher(email.trim())
                                 .matches() -> {
                                 errorText = "Please enter a valid email address"
                             }
 
-                            phone.trim().length < 11 -> {
-                                errorText = "Please enter a valid phone number"
+                            !isAllowedEmailDomain(email) -> {
+                                errorText = "Email must be a gmail.com, yahoo.com, hotmail.com, or aust.edu address"
+                            }
+
+                            !isValidSignupPhone(phone) -> {
+                                errorText = "Phone must be 11 digits, or +88 followed by 11 digits"
                             }
 
                             password.length < 6 -> {
@@ -713,6 +749,27 @@ fun SignupScreen(
             }
 
             Spacer(modifier = Modifier.height(52.dp))
+        }
+
+        if (onBackClick != null) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(SteelDark)
+                    .border(width = 1.dp, color = Ghost.copy(alpha = 0.6f), shape = CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = SnowWhite,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
