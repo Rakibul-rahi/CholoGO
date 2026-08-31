@@ -3,11 +3,15 @@ package com.example.chologo.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.chologo.data.model.Ride
+import com.example.chologo.data.model.RideRating
+import com.example.chologo.data.model.RideReport
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.data.model.isTimeClose
+import com.example.chologo.data.repository.TomorrowFeedbackRepository
 import com.example.chologo.data.repository.TomorrowLegResult
 import com.example.chologo.data.repository.TomorrowRideRepository
 import com.example.chologo.repository.UserRepository
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +62,7 @@ data class TomorrowRideUiState(
 
 class TomorrowRideViewModel(
     private val repository: TomorrowRideRepository = TomorrowRideRepository(),
+    private val feedbackRepository: TomorrowFeedbackRepository = TomorrowFeedbackRepository(),
     private val userRepository: UserRepository = UserRepository()
 ) : ViewModel() {
 
@@ -273,6 +278,13 @@ class TomorrowRideViewModel(
                 userRepository.addXpToCurrentUser(10L) { xpResult ->
                     xpResult.onSuccess { onXpAwarded() }
                 }
+
+                // Fire-and-forget push to the passenger - a separate child
+                // launch so a notify failure can never affect the accept
+                // flow's own success/error state.
+                viewModelScope.launch {
+                    repository.notifyPassengerAccepted(match.requestId)
+                }
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = e.message ?: "Failed to accept request."
@@ -323,6 +335,46 @@ class TomorrowRideViewModel(
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = e.message ?: "Failed to cancel ride."
+                )
+            }
+        }
+    }
+
+    fun startTripAsRider(requestId: String, riderId: String) {
+        setProcessing(requestId, true)
+
+        viewModelScope.launch {
+            val result = repository.riderStartTrip(requestId, riderId)
+
+            setProcessing(requestId, false)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(
+                    successMessage = "Waiting for passenger to confirm the trip started."
+                )
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to start trip."
+                )
+            }
+        }
+    }
+
+    fun requestTripCompletionAsRider(requestId: String, riderId: String) {
+        setProcessing(requestId, true)
+
+        viewModelScope.launch {
+            val result = repository.riderRequestTripCompletion(requestId, riderId)
+
+            setProcessing(requestId, false)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(
+                    successMessage = "Waiting for passenger to confirm completion."
+                )
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to complete trip."
                 )
             }
         }
@@ -411,6 +463,7 @@ class TomorrowRideViewModel(
     fun savePassengerPlan(
         userId: String,
         passengerName: String,
+        passengerPhone: String,
         rideDate: String,
         wantCampus: Boolean,
         campusPickup: String,
@@ -443,6 +496,7 @@ class TomorrowRideViewModel(
                     repository.upsertPassengerRequest(
                         userId = userId,
                         passengerName = passengerName,
+                        passengerPhone = passengerPhone,
                         rideDate = rideDate,
                         tripDirection = "to_campus",
                         pickup = campusPickup,
@@ -460,6 +514,7 @@ class TomorrowRideViewModel(
                     repository.upsertPassengerRequest(
                         userId = userId,
                         passengerName = passengerName,
+                        passengerPhone = passengerPhone,
                         rideDate = rideDate,
                         tripDirection = "to_home",
                         pickup = "AUST Gate",
@@ -477,6 +532,17 @@ class TomorrowRideViewModel(
                 xpAmount = 5L,
                 onXpAwarded = onXpAwarded
             )
+
+            // Fire-and-forget push to any rider whose saved ride matches -
+            // covers both a brand-new request and a resubmitted/edited one;
+            // the server's own dedup marker handles repeat-safety, not us.
+            results.mapNotNull { it.getOrNull() }
+                .filterIsInstance<TomorrowLegResult.Saved>()
+                .forEach { saved ->
+                    viewModelScope.launch {
+                        repository.notifyMatchingRiders(saved.docId)
+                    }
+                }
         }
     }
 
@@ -519,6 +585,125 @@ class TomorrowRideViewModel(
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = e.message ?: "Failed to remove request."
+                )
+            }
+        }
+    }
+
+    fun confirmTripStarted(requestId: String) {
+        setProcessing(requestId, true)
+
+        viewModelScope.launch {
+            val result = repository.passengerConfirmTripStarted(requestId)
+
+            setProcessing(requestId, false)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(successMessage = "Trip started confirmed.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to confirm trip start."
+                )
+            }
+        }
+    }
+
+    fun rejectTripStarted(requestId: String) {
+        setProcessing(requestId, true)
+
+        viewModelScope.launch {
+            val result = repository.passengerRejectTripStarted(requestId)
+
+            setProcessing(requestId, false)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(successMessage = "Trip start rejected.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to reject trip start."
+                )
+            }
+        }
+    }
+
+    fun confirmTripCompleted(requestId: String) {
+        setProcessing(requestId, true)
+
+        viewModelScope.launch {
+            val result = repository.passengerConfirmTripCompleted(requestId)
+
+            setProcessing(requestId, false)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(successMessage = "Trip completed.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to confirm trip completion."
+                )
+            }
+        }
+    }
+
+    fun submitTomorrowRating(
+        request: RideRequest,
+        ratedBy: String,
+        ratedTo: String,
+        stars: Int,
+        comment: String
+    ) {
+        viewModelScope.launch {
+            val rating = RideRating(
+                requestId = request.requestId,
+                rideId = request.matchedRideId,
+                passengerId = request.userId,
+                riderId = request.matchedRiderId,
+                ratedBy = ratedBy,
+                ratedTo = ratedTo,
+                stars = stars,
+                comment = comment,
+                createdAt = Timestamp.now()
+            )
+
+            val result = feedbackRepository.submitRideRating(rating)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(successMessage = "Rating submitted.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to submit rating."
+                )
+            }
+        }
+    }
+
+    fun submitTomorrowReport(
+        request: RideRequest,
+        reportedBy: String,
+        reportedUserId: String,
+        reason: String,
+        details: String
+    ) {
+        viewModelScope.launch {
+            val report = RideReport(
+                requestId = request.requestId,
+                rideId = request.matchedRideId,
+                passengerId = request.userId,
+                riderId = request.matchedRiderId,
+                reportedBy = reportedBy,
+                reportedUserId = reportedUserId,
+                reason = reason,
+                details = details,
+                status = "pending",
+                createdAt = Timestamp.now()
+            )
+
+            val result = feedbackRepository.submitRideReport(report)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(successMessage = "Report submitted.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to submit report."
                 )
             }
         }

@@ -7,6 +7,7 @@ data class RideRequest(
     val userId: String = "",
 
     val passengerName: String = "",
+    val passengerPhone: String = "",
     val pickup: String = "",
     val destination: String = "",
     val tripDirection: String = "",   // to_campus or to_home
@@ -27,8 +28,23 @@ data class RideRequest(
     val matchedRiderPhone: String = "",
     val matchedRideTime: String = "",
     val acceptedAt: Timestamp? = null,
+
+    // Trip lifecycle - mirrors RideNowRequest's start/complete confirmation
+    val rideStartedByRider: Boolean = false,
+    val rideConfirmedByPassenger: Boolean = false,
+    val rideEndedByRider: Boolean = false,
+    val rideCompletedByPassenger: Boolean = false,
+    val startedAt: Timestamp? = null,
+    val completedAt: Timestamp? = null,
+
+    // Rating / report
     val riderRated: Boolean = false,
+    val rating: Int = 0,
+    val ratedAt: Timestamp? = null,
     val issueReported: Boolean = false,
+    val reportReason: String = "",
+    val reportDetails: String = "",
+    val reportedAt: Timestamp? = null,
 
     val rejectedByRiderIds: List<String> = emptyList(),
 

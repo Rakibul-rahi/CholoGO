@@ -74,8 +74,12 @@ class RideNowLiveRepository(
                     doc.reference,
                     mapOf(
                         "status" to "inactive",
-                        "isLiveNow" to false,
-                        "isAvailable" to false,
+                        // Firestore strips the "is" prefix from Kotlin
+                        // boolean field names (see LiveRide.isLiveNow /
+                        // isAvailable) - the real fields are "liveNow" and
+                        // "available".
+                        "liveNow" to false,
+                        "available" to false,
                         "currentRequestId" to "",
                         "lastUpdatedAt" to now
                     )
@@ -95,8 +99,8 @@ class RideNowLiveRepository(
                 .update(
                     mapOf(
                         "status" to "inactive",
-                        "isLiveNow" to false,
-                        "isAvailable" to false,
+                        "liveNow" to false,
+                        "available" to false,
                         "currentRequestId" to "",
                         "lastUpdatedAt" to Timestamp.now()
                     )

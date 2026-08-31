@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,12 +44,13 @@ import kotlin.random.Random
 
 private val BgStart = Color(0xFF1A1030)
 private val BgEnd = Color(0xFF0D1520)
+private val FooterBg = Color(0xFF12161C)
 private val BlueAccent = Color(0xFF60A5FA)
 private val LimeAccent = Color(0xFFC6F135)
 private val TextHigh = Color(0xFFF1F5F9)
 private val TextMed = Color(0xFF8B96A5)
 private val BorderBlue = Color(0x3360A5FA)
-private val DotInactive = Color.White.copy(alpha = 0.12f)
+private val DotInactive = Color.White.copy(alpha = 0.18f)
 
 data class LocalAd(
     val companyName: String,
@@ -110,12 +112,16 @@ fun LocalAdCarouselBanner(
 
     if (ads.isEmpty()) return
 
+    // A real hero card, not a squeezed-in strip: a tall image area (where a
+    // wide banner like Sayora's actually has room to breathe, instead of
+    // being crushed into a 38dp square) with its own solid caption footer
+    // underneath, so text never has to fight the artwork for legibility.
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 8.dp)
-            .height(76.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(180.dp)
+            .clip(RoundedCornerShape(22.dp))
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(BgStart, BgEnd)
@@ -124,116 +130,133 @@ fun LocalAdCarouselBanner(
             .border(
                 width = 1.dp,
                 color = BorderBlue,
-                shape = RoundedCornerShape(18.dp)
+                shape = RoundedCornerShape(22.dp)
             )
     ) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxSize()
         ) { page ->
 
             val ad = ads[page]
 
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(76.dp)
+                    .height(180.dp)
                     .clickable {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ad.companyUrl))
                         context.startActivity(intent)
                     }
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(BlueAccent.copy(alpha = 0.12f))
-                        .border(
-                            width = 1.dp,
-                            color = BlueAccent.copy(alpha = 0.20f),
-                            shape = RoundedCornerShape(12.dp)
-                        ),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .height(116.dp)
                 ) {
                     Image(
                         painter = painterResource(id = ad.imageRes),
-                        contentDescription = ad.companyName,
+                        contentDescription = ad.title,
                         contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Subtle scrim so the "Sponsored" tag stays legible over
+                    // any artwork, without dimming the ad itself much.
+                    Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .align(Alignment.TopStart)
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.35f),
+                                        Color.Transparent
+                                    )
+                                )
+                            )
                     )
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(10.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "SPONSORED",
+                            color = LimeAccent,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
                 }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = ad.title,
-                        color = TextHigh,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
-                    Text(
-                        text = ad.description,
-                        color = TextMed,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = "Sponsored by ${ad.companyName}",
-                        color = LimeAccent.copy(alpha = 0.85f),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(FooterBg)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    ads.forEachIndexed { index, _ ->
-                        Box(
-                            modifier = Modifier
-                                .then(
-                                    if (index == pagerState.currentPage) {
-                                        Modifier
-                                            .width(14.dp)
-                                            .height(5.dp)
-                                    } else {
-                                        Modifier.size(5.dp)
-                                    }
-                                )
-                                .clip(
-                                    if (index == pagerState.currentPage) {
-                                        RoundedCornerShape(4.dp)
-                                    } else {
-                                        CircleShape
-                                    }
-                                )
-                                .background(
-                                    if (index == pagerState.currentPage) BlueAccent else DotInactive
-                                )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = ad.title,
+                            color = TextHigh,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
+
+                        Text(
+                            text = "${ad.companyName} · ${ad.description}",
+                            color = TextMed,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ads.forEachIndexed { index, _ ->
+                            Box(
+                                modifier = Modifier
+                                    .then(
+                                        if (index == pagerState.currentPage) {
+                                            Modifier
+                                                .width(14.dp)
+                                                .height(5.dp)
+                                        } else {
+                                            Modifier.size(5.dp)
+                                        }
+                                    )
+                                    .clip(
+                                        if (index == pagerState.currentPage) {
+                                            RoundedCornerShape(4.dp)
+                                        } else {
+                                            CircleShape
+                                        }
+                                    )
+                                    .background(
+                                        if (index == pagerState.currentPage) BlueAccent else DotInactive
+                                    )
+                            )
+                        }
                     }
                 }
             }

@@ -21,16 +21,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -78,7 +81,8 @@ private val GradVolt = Brush.linearGradient(listOf(Volt, VoltGlow))
 @Composable
 fun AuthChoiceScreen(
     onLoginClick: () -> Unit = {},
-    onSignupClick: () -> Unit = {}
+    onSignupClick: () -> Unit = {},
+    onBackClick: (() -> Unit)? = null
 ) {
     val pulse = rememberInfiniteTransition(label = "auth_choice_pulse")
 
@@ -435,6 +439,27 @@ fun AuthChoiceScreen(
             )
 
             Spacer(modifier = Modifier.height(52.dp))
+        }
+
+        if (onBackClick != null) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(SteelDark)
+                    .border(width = 1.dp, color = Ghost.copy(alpha = 0.6f), shape = CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back to browsing",
+                    tint = SnowWhite,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

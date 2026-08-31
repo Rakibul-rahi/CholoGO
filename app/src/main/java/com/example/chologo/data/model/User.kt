@@ -13,5 +13,6 @@ data class User(
     val createdAt: Long = System.currentTimeMillis(),
     val ratingAverage: Double = 0.0,
     val ratingCount: Int = 0,
-    val reportCount: Int = 0
+    val reportCount: Int = 0,
+    val fcmTokens: List<String> = emptyList()
 )

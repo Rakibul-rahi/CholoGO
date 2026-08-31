@@ -1,33 +1,46 @@
 package com.example.chologo.ui.common
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+private val DialogSurface = Color(0xFF161B20)
+private val TextHigh = Color(0xFFF1F5F9)
+private val TextMed = Color(0xFF8B96A5)
+private val AccentRed = Color(0xFFFF4D6A)
+private val FieldBorder = Color(0xFF2A3548)
 
 @Composable
 fun ReportDialog(
     onDismiss: () -> Unit,
     onSubmit: (String, String) -> Unit
 ) {
-    var reason by remember {
-        mutableStateOf("Unsafe riding")
-    }
-
-    var details by remember {
-        mutableStateOf("")
-    }
+    var reason by remember { mutableStateOf("Unsafe riding") }
+    var details by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = DialogSurface,
+        shape = RoundedCornerShape(22.dp),
         title = {
-            Text("Report Rider")
+            Text("Report a Problem", color = TextHigh, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                Text(
+                    "Tell us what went wrong. Reports are reviewed and don't notify the rider directly.",
+                    color = TextMed,
+                    fontSize = 13.sp
+                )
 
                 val reasons = listOf(
                     "Unsafe riding",
@@ -37,43 +50,54 @@ fun ReportDialog(
                     "Other"
                 )
 
-                reasons.forEach { item ->
-                    Row {
-                        RadioButton(
-                            selected = reason == item,
-                            onClick = {
-                                reason = item
-                            }
-                        )
-
-                        Text(item)
+                Column {
+                    reasons.forEach { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = reason == item,
+                                onClick = { reason = item },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = AccentRed,
+                                    unselectedColor = TextMed
+                                )
+                            )
+                            Text(item, color = TextHigh, fontSize = 14.sp)
+                        }
                     }
                 }
 
                 OutlinedTextField(
                     value = details,
-                    onValueChange = {
-                        details = it
-                    },
-                    label = {
-                        Text("Details")
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                    onValueChange = { details = it },
+                    label = { Text("What happened? (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextHigh,
+                        unfocusedTextColor = TextHigh,
+                        focusedBorderColor = AccentRed,
+                        unfocusedBorderColor = FieldBorder,
+                        focusedLabelColor = AccentRed,
+                        unfocusedLabelColor = TextMed,
+                        cursorColor = AccentRed
+                    )
                 )
             }
         },
         confirmButton = {
             Button(
-                onClick = {
-                    onSubmit(reason, details)
-                }
+                onClick = { onSubmit(reason, details) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentRed,
+                    contentColor = Color.White
+                )
             ) {
-                Text("Submit")
+                Text("Submit Report", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             OutlinedButton(
-                onClick = onDismiss
+                onClick = onDismiss,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMed)
             ) {
                 Text("Cancel")
             }

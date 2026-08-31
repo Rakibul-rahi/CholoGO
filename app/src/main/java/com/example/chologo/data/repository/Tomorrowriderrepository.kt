@@ -2,6 +2,7 @@ package com.example.chologo.data.repository
 
 import com.example.chologo.data.model.Ride
 import com.example.chologo.data.model.RideRequest
+import com.example.chologo.data.model.RideRequestStatus
 import com.example.chologo.data.model.buildRouteKey
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -171,10 +172,13 @@ class TomorrowRideRepository(
     }
 
     /**
-     * A rider's own requests that have already been accepted, for this
-     * date. Needed so the UI has a way to find which request is tied to a
-     * given matched ride (the pending-requests listener alone stops
-     * tracking a request the moment it's accepted).
+     * A rider's own requests that have already been accepted (or are
+     * further along the trip lifecycle - started/ongoing/completed), for
+     * this date. Needed so the UI has a way to find which request is tied
+     * to a given matched ride (the pending-requests listener alone stops
+     * tracking a request the moment it's accepted). Must include every
+     * lifecycle status, not just "accepted" - otherwise the rider's UI
+     * loses track of the request the instant it moves to the next stage.
      */
     fun listenAcceptedRequestsForRider(
         riderId: String,
@@ -185,7 +189,7 @@ class TomorrowRideRepository(
         return rideRequestsRef
             .whereEqualTo("matchedRiderId", riderId)
             .whereEqualTo("rideDate", rideDate)
-            .whereEqualTo("status", "accepted")
+            .whereIn("status", RideRequestStatus.ACTIVE_LIFECYCLE_STATUSES)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     onError(error)
@@ -263,6 +267,164 @@ class TomorrowRideRepository(
         }
     }
 
+    // ---------- Trip lifecycle (mirrors RideNowRequestRepository) ----------
+
+    suspend fun riderStartTrip(requestId: String, riderId: String): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideRequestsRef.document(requestId)
+                val snapshot = transaction.get(requestDoc)
+
+                val request = snapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.matchedRiderId != riderId) {
+                    throw Exception("This request isn't matched to you.")
+                }
+
+                if (request.status != RideRequestStatus.ACCEPTED) {
+                    throw Exception("Trip can only be started after it is accepted.")
+                }
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideRequestStatus.START_PENDING_CONFIRMATION,
+                        "rideStartedByRider" to true,
+                        "rideConfirmedByPassenger" to false,
+                        "startedAt" to null
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun passengerConfirmTripStarted(requestId: String): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideRequestsRef.document(requestId)
+                val snapshot = transaction.get(requestDoc)
+
+                val request = snapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.status != RideRequestStatus.START_PENDING_CONFIRMATION) {
+                    throw Exception("Ride is not waiting for start confirmation.")
+                }
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideRequestStatus.ONGOING,
+                        "rideConfirmedByPassenger" to true,
+                        "startedAt" to Timestamp.now()
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun passengerRejectTripStarted(requestId: String): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideRequestsRef.document(requestId)
+                val snapshot = transaction.get(requestDoc)
+
+                val request = snapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.status != RideRequestStatus.START_PENDING_CONFIRMATION) {
+                    throw Exception("Ride is not waiting for start confirmation.")
+                }
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideRequestStatus.ACCEPTED,
+                        "rideStartedByRider" to false,
+                        "rideConfirmedByPassenger" to false,
+                        "startedAt" to null
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun riderRequestTripCompletion(requestId: String, riderId: String): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideRequestsRef.document(requestId)
+                val snapshot = transaction.get(requestDoc)
+
+                val request = snapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.matchedRiderId != riderId) {
+                    throw Exception("This request isn't matched to you.")
+                }
+
+                if (request.status != RideRequestStatus.ONGOING) {
+                    throw Exception("Only an ongoing trip can be marked for completion.")
+                }
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideRequestStatus.END_PENDING_CONFIRMATION,
+                        "rideEndedByRider" to true,
+                        "rideCompletedByPassenger" to false,
+                        "completedAt" to null
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun passengerConfirmTripCompleted(requestId: String): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideRequestsRef.document(requestId)
+                val snapshot = transaction.get(requestDoc)
+
+                val request = snapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.status != RideRequestStatus.END_PENDING_CONFIRMATION) {
+                    throw Exception("Ride is not waiting for completion confirmation.")
+                }
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideRequestStatus.COMPLETED,
+                        "rideCompletedByPassenger" to true,
+                        "completedAt" to Timestamp.now()
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun deleteRide(rideId: String, riderId: String): Result<Unit> {
         return try {
             val snapshot = ridesRef.document(rideId).get().await()
@@ -327,6 +489,7 @@ class TomorrowRideRepository(
     suspend fun upsertPassengerRequest(
         userId: String,
         passengerName: String,
+        passengerPhone: String,
         rideDate: String,
         tripDirection: String,
         pickup: String,
@@ -352,7 +515,7 @@ class TomorrowRideRepository(
             val routeKey = buildRouteKey(tripDirection, pickup, destination)
 
             if (existing != null) {
-                if (existing.status != "pending") {
+                if (existing.status != "pending" && existing.status != "cancelled") {
                     return Result.success(
                         TomorrowLegResult.Blocked(
                             "Your ${tripDirection.readableDirection()} request is already " +
@@ -361,10 +524,17 @@ class TomorrowRideRepository(
                     )
                 }
 
+                // "pending" is resubmitted in place. "cancelled" (e.g. the
+                // rider backed out after accepting) is also resubmitted in
+                // place, rather than blocked forever - otherwise the leg can
+                // never return to "pending", so no other rider can ever see
+                // or match it again. Clear the stale match info from the
+                // previous rider so the doc looks like a fresh request.
                 rideRequestsRef.document(existing.requestId)
                     .update(
                         mapOf(
                             "passengerName" to passengerName,
+                            "passengerPhone" to passengerPhone,
                             "pickup" to pickup,
                             "destination" to destination,
                             "tripTime" to tripTime,
@@ -372,7 +542,17 @@ class TomorrowRideRepository(
                             "minute" to minute,
                             "timeMinutes" to timeMinutes,
                             "routeKey" to routeKey,
-                            "status" to "pending"
+                            "status" to "pending",
+                            "matchedRideId" to "",
+                            "matchedRiderId" to "",
+                            "matchedRiderName" to "",
+                            "matchedRiderPhone" to "",
+                            "matchedRideTime" to "",
+                            "acceptedAt" to null,
+                            "cancelledBy" to "",
+                            "cancelledByRole" to "",
+                            "cancellationReason" to "",
+                            "cancelledAt" to null
                         )
                     )
                     .await()
@@ -385,6 +565,7 @@ class TomorrowRideRepository(
                 requestId = docRef.id,
                 userId = userId,
                 passengerName = passengerName,
+                passengerPhone = passengerPhone,
                 pickup = pickup,
                 destination = destination,
                 tripDirection = tripDirection,
@@ -451,6 +632,58 @@ class TomorrowRideRepository(
             Result.failure(e)
         }
     }
+
+    /**
+     * Shared shape for the two notify-* endpoints below - both take just
+     * {requestId} and a Bearer token, same as requestPassengerCancellation.
+     * Best-effort by design: callers fire these after their own real
+     * Firestore write already succeeded and don't surface failures here to
+     * the UI - push delivery isn't critical-path.
+     */
+    private suspend fun postNotifyRequest(
+        path: String,
+        requestId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val idToken = FirebaseAuth.getInstance().currentUser
+                ?.getIdToken(false)
+                ?.await()
+                ?.token
+                ?: throw Exception("Not authenticated.")
+
+            val payload = JSONObject().apply {
+                put("requestId", requestId)
+            }
+
+            val body = payload.toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+
+            val httpRequest = Request.Builder()
+                .url("$apiBaseUrl$path")
+                .addHeader("Authorization", "Bearer $idToken")
+                .post(body)
+                .build()
+
+            httpClient.newCall(httpRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string()
+                    throw Exception(errorBody ?: "Notify failed (${response.code}).")
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Pushes the passenger once the rider's accept transaction has landed. */
+    suspend fun notifyPassengerAccepted(requestId: String): Result<Unit> =
+        postNotifyRequest("/api/tomorrow/notify-accepted", requestId)
+
+    /** Pushes any rider whose saved ride matches this newly (re)submitted request. */
+    suspend fun notifyMatchingRiders(requestId: String): Result<Unit> =
+        postNotifyRequest("/api/tomorrow/notify-match", requestId)
 
     suspend fun deleteRequest(requestId: String, userId: String): Result<Unit> {
         return try {

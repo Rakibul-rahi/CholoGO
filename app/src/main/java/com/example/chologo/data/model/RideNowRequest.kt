@@ -10,6 +10,7 @@ data class RideNowRequest(
     // Passenger
     val passengerId: String = "",
     val passengerName: String = "",
+    val passengerPhone: String = "",
 
     // Trip
     val pickup: String = "",
