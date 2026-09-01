@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +53,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.chologo.data.model.Ride
+import com.example.chologo.data.model.VehicleType
+import com.example.chologo.data.model.seatCapacity
+import com.example.chologo.data.model.seatSummary
+import com.example.chologo.data.model.seatsTaken
 import com.example.chologo.viewmodel.TomorrowRideViewModel
 
 @Composable
@@ -58,14 +65,26 @@ fun RiderTomorrowSetupTab(
     riderId: String,
     rideDate: String,
     riderName: String,
+    vehicleType: String,
+    vehicleModel: String = "",
+    vehicleNumber: String = "",
+    vehicleColor: String = "",
     tomorrowRideViewModel: TomorrowRideViewModel = viewModel(),
     onSaveSuccess: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by tomorrowRideViewModel.uiState.collectAsState()
 
+    val isCar = VehicleType.isCar(vehicleType)
+
     var campusPickupLocation by remember { mutableStateOf("Mirpur 12") }
     var homeReturnLocation by remember { mutableStateOf("Mirpur 12") }
+
+    // A bike's single pillion seat isn't the rider's to choose, so these only
+    // ever move for a car - VehicleType.resolveSeats pins bikes back to 1
+    // regardless of what's held here.
+    var campusSeats by remember { mutableIntStateOf(VehicleType.BIKE_SEATS) }
+    var homeSeats by remember { mutableIntStateOf(VehicleType.BIKE_SEATS) }
 
     var showCampusPickupMenu by remember { mutableStateOf(false) }
     var showHomeReturnMenu by remember { mutableStateOf(false) }
@@ -87,8 +106,13 @@ fun RiderTomorrowSetupTab(
     val campusRide = uiState.savedRides.firstOrNull { it.tripDirection == "to_campus" }
     val homeRide = uiState.savedRides.firstOrNull { it.tripDirection == "to_home" }
 
-    val isCampusLocked = campusRide != null && campusRide.status != "active"
-    val isHomeLocked = homeRide != null && homeRide.status != "active"
+    // Must match what upsertRiderRide will actually accept. A car only turns
+    // "full" when its last seat goes, so a status-only check would leave the
+    // form editable on a part-full car and then reject the save.
+    val isCampusLocked = campusRide != null &&
+            (campusRide.status != "active" || campusRide.seatsTaken() > 0)
+    val isHomeLocked = homeRide != null &&
+            (homeRide.status != "active" || homeRide.seatsTaken() > 0)
 
     val isPlanSubmitted = uiState.savedRides.isNotEmpty()
     val submittedDateText = uiState.savedRides.firstOrNull()?.rideDate ?: rideDate
@@ -111,6 +135,7 @@ fun RiderTomorrowSetupTab(
                 campusHour = ride.timeMinutes / 60
                 campusMinute = ride.timeMinutes % 60
             }
+            campusSeats = ride.seatCapacity()
         }
 
         homeRide?.let { ride ->
@@ -119,6 +144,7 @@ fun RiderTomorrowSetupTab(
                 homeHour = ride.timeMinutes / 60
                 homeMinute = ride.timeMinutes % 60
             }
+            homeSeats = ride.seatCapacity()
         }
 
         hasLoadedOnce = true
@@ -151,16 +177,19 @@ fun RiderTomorrowSetupTab(
                     campusPickup = campusPickupLocation,
                     campusTime = campusTimeText,
                     campusLocked = isCampusLocked,
+                    campusRide = campusRide,
                     returnLocation = homeReturnLocation,
                     returnTime = homeTimeText,
                     returnLocked = isHomeLocked,
+                    homeRide = homeRide,
+                    vehicleType = vehicleType,
                     submittedDate = submittedDateText,
                     onEditClick = { isEditing = true }
                 )
             }
 
             else -> {
-                SetupHeaderCard()
+                SetupHeaderCard(vehicleType = vehicleType)
 
                 SetupSectionHeader(
                     icon = Icons.Default.School,
@@ -189,6 +218,12 @@ fun RiderTomorrowSetupTab(
                         label = "Departure time",
                         selectedTimeText = campusTimeText,
                         onPickTimeClick = { showCampusTimePicker = true }
+                    )
+
+                    SeatSelectionCard(
+                        isCar = isCar,
+                        seats = campusSeats,
+                        onSeatsChange = { campusSeats = it }
                     )
                 }
 
@@ -221,6 +256,12 @@ fun RiderTomorrowSetupTab(
                         label = "Departure time",
                         selectedTimeText = homeTimeText,
                         onPickTimeClick = { showHomeTimePicker = true }
+                    )
+
+                    SeatSelectionCard(
+                        isCar = isCar,
+                        seats = homeSeats,
+                        onSeatsChange = { homeSeats = it }
                     )
                 }
 
@@ -257,9 +298,15 @@ fun RiderTomorrowSetupTab(
                                     campusPickup = campusPickupLocation,
                                     campusTripTime = campusTimeText,
                                     campusTimeMinutes = toMinutes(campusHour, campusMinute),
+                                    campusSeats = campusSeats,
                                     homeDestination = homeReturnLocation,
                                     homeTripTime = homeTimeText,
                                     homeTimeMinutes = toMinutes(homeHour, homeMinute),
+                                    homeSeats = homeSeats,
+                                    vehicleType = vehicleType,
+                                    vehicleModel = vehicleModel,
+                                    vehicleNumber = vehicleNumber,
+                                    vehicleColor = vehicleColor,
                                     onXpAwarded = onSaveSuccess
                                 )
                             },
@@ -328,9 +375,12 @@ private fun TomorrowPlanSubmittedCard(
     campusPickup: String,
     campusTime: String,
     campusLocked: Boolean,
+    campusRide: Ride?,
     returnLocation: String,
     returnTime: String,
     returnLocked: Boolean,
+    homeRide: Ride?,
+    vehicleType: String,
     submittedDate: String,
     onEditClick: () -> Unit
 ) {
@@ -345,6 +395,7 @@ private fun TomorrowPlanSubmittedCard(
                 text = if (campusLocked) "Matched" else "Active",
                 accent = if (campusLocked) AccentEmerald else AccentBlue
             )
+            campusRide?.let { MiniBadge(text = it.seatSummary(), accent = Lime) }
         }
         Spacer(modifier = Modifier.height(6.dp))
         MetaRow(Icons.Default.Schedule, campusTime)
@@ -356,9 +407,16 @@ private fun TomorrowPlanSubmittedCard(
                 text = if (returnLocked) "Matched" else "Active",
                 accent = if (returnLocked) AccentEmerald else AccentBlue
             )
+            homeRide?.let { MiniBadge(text = it.seatSummary(), accent = Lime) }
         }
         Spacer(modifier = Modifier.height(6.dp))
         MetaRow(Icons.Default.Schedule, returnTime)
+        Spacer(modifier = Modifier.height(10.dp))
+        MetaRow(
+            if (VehicleType.isCar(vehicleType)) Icons.Default.DirectionsCar
+            else Icons.Default.TwoWheeler,
+            "Sharing your ${VehicleType.label(vehicleType).lowercase()}"
+        )
         Spacer(modifier = Modifier.height(14.dp))
 
         OutlinedButton(
@@ -405,13 +463,21 @@ private fun LockedLegNotice(message: String) {
 }
 
 @Composable
-private fun SetupHeaderCard() {
+private fun SetupHeaderCard(vehicleType: String) {
+    val isCar = VehicleType.isCar(vehicleType)
+
     SectionCard(
         title = "Set Up Tomorrow",
-        subtitle = "Save your campus and return trip once. Matching happens automatically."
+        subtitle = if (isCar) {
+            "Save your campus and return trip once, and pick how many seats " +
+                    "you're opening up on each. Matching happens automatically."
+        } else {
+            "Save your campus and return trip once. Matching happens automatically."
+        }
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MiniBadge(text = "2 trips", accent = AccentBlue)
+            MiniBadge(text = VehicleType.label(vehicleType), accent = Lime)
             MiniBadge(text = "Auto match", accent = AccentEmerald)
         }
     }
@@ -436,6 +502,99 @@ private fun SetupSectionHeader(
             color = TextHigh,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp
+        )
+    }
+}
+
+/**
+ * Seat capacity for one leg. A bike has nothing to decide, so it renders as
+ * a plain read-only note rather than a disabled stepper - a control you can
+ * see but never move reads as broken.
+ */
+@Composable
+private fun SeatSelectionCard(
+    isCar: Boolean,
+    seats: Int,
+    onSeatsChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(CardElevated)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (isCar) Icons.Default.DirectionsCar else Icons.Default.TwoWheeler,
+            contentDescription = null,
+            tint = AccentBlue,
+            modifier = Modifier.size(18.dp)
+        )
+
+        Spacer(modifier = Modifier.size(10.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Seats offered",
+                color = TextMed,
+                fontSize = 12.sp
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = if (isCar) {
+                    "$seats ${if (seats == 1) "seat" else "seats"}"
+                } else {
+                    "1 seat (bike)"
+                },
+                color = TextHigh,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+        }
+
+        if (isCar) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SeatStepperButton(
+                    label = "−",
+                    enabled = seats > VehicleType.MIN_CAR_SEATS,
+                    onClick = { onSeatsChange(seats - 1) }
+                )
+
+                SeatStepperButton(
+                    label = "+",
+                    enabled = seats < VehicleType.MAX_CAR_SEATS,
+                    onClick = { onSeatsChange(seats + 1) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeatStepperButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (enabled) Lime.copy(alpha = 0.14f) else CardBase)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) Lime else TextMed,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp
         )
     }
 }

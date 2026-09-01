@@ -3,6 +3,7 @@ package com.example.chologo.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.chologo.data.model.User
 import com.example.chologo.navigation.Screen
 import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.auth.UserRole
@@ -21,8 +22,36 @@ data class AuthUiState(
     val userName: String = "",
     val userEmail: String = "",
     val userPhone: String = "",
-    val userRole: String = ""
+    val userRole: String = "",
+
+    // Rider's vehicle, read back from their profile. Blank for passengers.
+    // VehicleType.normalize() turns the blank a pre-car rider account still
+    // has into "bike", so nothing downstream needs to special-case it.
+    val userVehicleType: String = "",
+    val userVehicleModel: String = "",
+    val userVehicleNumber: String = "",
+    val userVehicleColor: String = ""
 )
+
+/**
+ * Every auth path (signup, login, Google sign-in, profile completion,
+ * refresh) publishes the same profile fields, so they share one copy step
+ * instead of five hand-maintained lists that drift apart whenever a field is
+ * added.
+ */
+private fun AuthUiState.withUserProfile(user: User): AuthUiState {
+    return copy(
+        userId = user.uid,
+        userName = user.name,
+        userEmail = user.email,
+        userPhone = user.phone,
+        userRole = user.role,
+        userVehicleType = user.vehicleType,
+        userVehicleModel = user.vehicleModel,
+        userVehicleNumber = user.vehicleNumber,
+        userVehicleColor = user.vehicleColor
+    )
+}
 
 class AuthViewModel : ViewModel() {
 
@@ -39,7 +68,11 @@ class AuthViewModel : ViewModel() {
         studentId: String,
         university: String,
         homeLocation: String,
-        password: String
+        password: String,
+        vehicleType: String = "",
+        vehicleModel: String = "",
+        vehicleNumber: String = "",
+        vehicleColor: String = ""
     ) {
         _uiState.value = _uiState.value.copy(
             isLoading = true,
@@ -55,7 +88,11 @@ class AuthViewModel : ViewModel() {
             studentId = studentId,
             university = university,
             homeLocation = homeLocation,
-            password = password
+            password = password,
+            vehicleType = vehicleType,
+            vehicleModel = vehicleModel,
+            vehicleNumber = vehicleNumber,
+            vehicleColor = vehicleColor
         ) { result ->
             result.onSuccess { user ->
                 val destination = when {
@@ -66,15 +103,10 @@ class AuthViewModel : ViewModel() {
 
                 repository.registerFcmTokenForUser(user.uid)
 
-                _uiState.value = _uiState.value.copy(
+                _uiState.value = _uiState.value.withUserProfile(user).copy(
                     isLoading = false,
                     destination = destination,
-                    errorMessage = if (destination == null) "Invalid user role found" else null,
-                    userId = user.uid,
-                    userName = user.name,
-                    userEmail = user.email,
-                    userPhone = user.phone,
-                    userRole = user.role
+                    errorMessage = if (destination == null) "Invalid user role found" else null
                 )
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
@@ -105,15 +137,10 @@ class AuthViewModel : ViewModel() {
 
                 repository.registerFcmTokenForUser(user.uid)
 
-                _uiState.value = _uiState.value.copy(
+                _uiState.value = _uiState.value.withUserProfile(user).copy(
                     isLoading = false,
                     destination = destination,
-                    errorMessage = if (destination == null) "Invalid user role found" else null,
-                    userId = user.uid,
-                    userName = user.name,
-                    userEmail = user.email,
-                    userPhone = user.phone,
-                    userRole = user.role
+                    errorMessage = if (destination == null) "Invalid user role found" else null
                 )
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
@@ -146,14 +173,9 @@ class AuthViewModel : ViewModel() {
 
                             repository.registerFcmTokenForUser(user.uid)
 
-                            _uiState.value = _uiState.value.copy(
+                            _uiState.value = _uiState.value.withUserProfile(user).copy(
                                 isLoading = false,
-                                destination = destination,
-                                userId = user.uid,
-                                userName = user.name,
-                                userEmail = user.email,
-                                userPhone = user.phone,
-                                userRole = user.role
+                                destination = destination
                             )
                         } else {
                             // First time signing in with this Google account -
@@ -181,7 +203,14 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun completeGoogleProfile(role: UserRole, phone: String) {
+    fun completeGoogleProfile(
+        role: UserRole,
+        phone: String,
+        vehicleType: String = "",
+        vehicleModel: String = "",
+        vehicleNumber: String = "",
+        vehicleColor: String = ""
+    ) {
         val firebaseUser = FirebaseAuth.getInstance().currentUser
 
         if (firebaseUser == null) {
@@ -202,7 +231,11 @@ class AuthViewModel : ViewModel() {
             name = firebaseUser.displayName ?: "",
             email = firebaseUser.email ?: "",
             phone = phone,
-            role = role
+            role = role,
+            vehicleType = vehicleType,
+            vehicleModel = vehicleModel,
+            vehicleNumber = vehicleNumber,
+            vehicleColor = vehicleColor
         ) { result ->
             result.onSuccess { user ->
                 val destination = when {
@@ -213,15 +246,10 @@ class AuthViewModel : ViewModel() {
 
                 repository.registerFcmTokenForUser(user.uid)
 
-                _uiState.value = _uiState.value.copy(
+                _uiState.value = _uiState.value.withUserProfile(user).copy(
                     isLoading = false,
                     destination = destination,
-                    errorMessage = if (destination == null) "Invalid user role found" else null,
-                    userId = user.uid,
-                    userName = user.name,
-                    userEmail = user.email,
-                    userPhone = user.phone,
-                    userRole = user.role
+                    errorMessage = if (destination == null) "Invalid user role found" else null
                 )
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
@@ -237,13 +265,7 @@ class AuthViewModel : ViewModel() {
             result.onSuccess { user ->
                 repository.registerFcmTokenForUser(user.uid)
 
-                _uiState.value = _uiState.value.copy(
-                    userId = user.uid,
-                    userName = user.name,
-                    userEmail = user.email,
-                    userPhone = user.phone,
-                    userRole = user.role
-                )
+                _uiState.value = _uiState.value.withUserProfile(user)
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = e.message

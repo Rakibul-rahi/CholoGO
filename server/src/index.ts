@@ -141,8 +141,16 @@ app.post(
               const seats = rideData.availableSeats;
               const currentSeats = typeof seats === "number" ? seats : 0;
 
+              // Never hand back more seats than the rider opened up.
+              // totalSeats is absent on rides created before cars existed,
+              // which were all single-seat bikes - hence the fallback of 1.
+              const total = rideData.totalSeats;
+              const capacity = typeof total === "number" ?
+                Math.max(total, currentSeats, 1) :
+                Math.max(currentSeats, 1);
+
               tx.update(rideRef, {
-                availableSeats: currentSeats + 1,
+                availableSeats: Math.min(currentSeats + 1, capacity),
                 status: "active",
                 lastUpdatedAt: now,
               });

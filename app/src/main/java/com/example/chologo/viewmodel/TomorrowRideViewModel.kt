@@ -2,14 +2,21 @@ package com.example.chologo.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.chologo.data.model.MissedRideAnswer
 import com.example.chologo.data.model.Ride
 import com.example.chologo.data.model.RideRating
 import com.example.chologo.data.model.RideReport
 import com.example.chologo.data.model.RideRequest
+import com.example.chologo.data.model.RideRequestStatus
+import com.example.chologo.data.model.VehicleType
+import com.example.chologo.data.model.XpRules
 import com.example.chologo.data.model.isTimeClose
+import com.example.chologo.data.model.needsMissedRideReview
+import com.example.chologo.data.model.seatCapacity
 import com.example.chologo.data.repository.TomorrowFeedbackRepository
 import com.example.chologo.data.repository.TomorrowLegResult
 import com.example.chologo.data.repository.TomorrowRideRepository
+import com.example.chologo.data.repository.XpRepository
 import com.example.chologo.repository.UserRepository
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
@@ -39,7 +46,12 @@ data class TomorrowMatchedRide(
     val pickup: String,
     val destination: String,
     val tripTime: String,
-    val availableSeats: Int
+    val availableSeats: Int,
+    val totalSeats: Int,
+    val vehicleType: String,
+    val vehicleModel: String,
+    val vehicleNumber: String,
+    val vehicleColor: String
 )
 
 data class TomorrowRideUiState(
@@ -57,13 +69,29 @@ data class TomorrowRideUiState(
     // ---- Passenger side ----
     val savedRequests: List<RideRequest> = emptyList(),
     val activeRidesForDate: List<Ride> = emptyList(),
-    val matchedRidesForPassenger: List<TomorrowMatchedRide> = emptyList()
-)
+    val matchedRidesForPassenger: List<TomorrowMatchedRide> = emptyList(),
+
+    // ---- Missed trips (either side) ----
+    // Every matched leg of this user's that is still sitting in an
+    // unfinished lifecycle status, across all dates. Callers narrow this
+    // to the genuinely overdue ones at render time with
+    // needsMissedRideReview(), since whether a leg counts as "missed"
+    // depends on the clock, not on the snapshot.
+    val unfinishedLegs: List<RideRequest> = emptyList()
+) {
+    /** Overdue legs needing the "did this ride happen?" review, right now. */
+    fun missedLegs(nowMillis: Long = System.currentTimeMillis()): List<RideRequest> {
+        return unfinishedLegs
+            .filter { it.needsMissedRideReview(nowMillis) }
+            .sortedWith(compareBy({ it.rideDate }, { it.timeMinutes }))
+    }
+}
 
 class TomorrowRideViewModel(
     private val repository: TomorrowRideRepository = TomorrowRideRepository(),
     private val feedbackRepository: TomorrowFeedbackRepository = TomorrowFeedbackRepository(),
-    private val userRepository: UserRepository = UserRepository()
+    private val userRepository: UserRepository = UserRepository(),
+    private val xpRepository: XpRepository = XpRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TomorrowRideUiState())
@@ -74,6 +102,7 @@ class TomorrowRideViewModel(
     private var acceptedRequestsListener: ListenerRegistration? = null
     private var requestsListener: ListenerRegistration? = null
     private var activeRidesListener: ListenerRegistration? = null
+    private var unfinishedLegsListener: ListenerRegistration? = null
 
     private var currentRiderId: String? = null
     private var currentUserId: String? = null
@@ -196,9 +225,15 @@ class TomorrowRideViewModel(
         campusPickup: String,
         campusTripTime: String,
         campusTimeMinutes: Int,
+        campusSeats: Int,
         homeDestination: String,
         homeTripTime: String,
         homeTimeMinutes: Int,
+        homeSeats: Int,
+        vehicleType: String,
+        vehicleModel: String = "",
+        vehicleNumber: String = "",
+        vehicleColor: String = "",
         onXpAwarded: () -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -212,7 +247,12 @@ class TomorrowRideViewModel(
                 pickup = campusPickup,
                 destination = "AUST Gate",
                 tripTime = campusTripTime,
-                timeMinutes = campusTimeMinutes
+                timeMinutes = campusTimeMinutes,
+                vehicleType = vehicleType,
+                vehicleModel = vehicleModel,
+                vehicleNumber = vehicleNumber,
+                vehicleColor = vehicleColor,
+                requestedSeats = campusSeats
             )
 
             val homeResult = repository.upsertRiderRide(
@@ -223,12 +263,19 @@ class TomorrowRideViewModel(
                 pickup = "AUST Gate",
                 destination = homeDestination,
                 tripTime = homeTripTime,
-                timeMinutes = homeTimeMinutes
+                timeMinutes = homeTimeMinutes,
+                vehicleType = vehicleType,
+                vehicleModel = vehicleModel,
+                vehicleNumber = vehicleNumber,
+                vehicleColor = vehicleColor,
+                requestedSeats = homeSeats
             )
 
             handlePlanSaveOutcome(
-                listOf(campusResult, homeResult),
-                xpAmount = 5L,
+                results = listOf(campusResult, homeResult),
+                userId = riderId,
+                isRider = true,
+                rideDate = rideDate,
                 onXpAwarded = onXpAwarded
             )
         }
@@ -254,8 +301,7 @@ class TomorrowRideViewModel(
         match: TomorrowMatchedRequest,
         riderId: String,
         riderName: String,
-        riderPhone: String,
-        onXpAwarded: () -> Unit = {}
+        riderPhone: String
     ) {
         setProcessing(match.requestId, true)
 
@@ -271,13 +317,15 @@ class TomorrowRideViewModel(
             setProcessing(match.requestId, false)
 
             result.onSuccess {
+                // No XP here, on purpose. Accepting used to pay the rider
+                // 10 XP the instant they tapped it, which two accounts
+                // could farm without limit: accept, cancel, let the
+                // passenger resubmit, accept again. Nothing pays out until
+                // a trip is actually finished, and the ledger caps even
+                // that at the two legs a real commuter makes in a day.
                 _uiState.value = _uiState.value.copy(
-                    successMessage = "Passenger accepted! (+10 XP)"
+                    successMessage = "Passenger accepted!"
                 )
-
-                userRepository.addXpToCurrentUser(10L) { xpResult ->
-                    xpResult.onSuccess { onXpAwarded() }
-                }
 
                 // Fire-and-forget push to the passenger - a separate child
                 // launch so a notify failure can never affect the accept
@@ -444,7 +492,12 @@ class TomorrowRideViewModel(
                         pickup = ride.pickup,
                         destination = ride.destination,
                         tripTime = ride.tripTime,
-                        availableSeats = ride.availableSeats
+                        availableSeats = ride.availableSeats,
+                        totalSeats = ride.seatCapacity(),
+                        vehicleType = VehicleType.normalize(ride.vehicleType),
+                        vehicleModel = ride.vehicleModel,
+                        vehicleNumber = ride.vehicleNumber,
+                        vehicleColor = ride.vehicleColor
                     )
                 )
             }
@@ -528,8 +581,10 @@ class TomorrowRideViewModel(
             }
 
             handlePlanSaveOutcome(
-                results,
-                xpAmount = 5L,
+                results = results,
+                userId = userId,
+                isRider = false,
+                rideDate = rideDate,
                 onXpAwarded = onXpAwarded
             )
 
@@ -710,19 +765,150 @@ class TomorrowRideViewModel(
     }
 
     // =====================================================================
+    // Missed trips (either side)
+    // =====================================================================
+
+    /**
+     * Starts watching for legs that were matched but never driven to an
+     * end - the "we both just rode and forgot to touch the app" case.
+     *
+     * Deliberately not scoped to a rideDate, unlike every other listener
+     * here. That scoping is why a missed ride is otherwise invisible: the
+     * Tomorrow tab only ever asks for tomorrow's key, so yesterday's
+     * unfinished 8:00 AM leg is never loaded by anyone and stays
+     * "accepted" forever.
+     *
+     * Called by the Ride History screen, not by the Tomorrow tabs. A trip
+     * that already happened is history, and asking about it in the tab for
+     * planning the *next* one buried the planning form under a prompt
+     * about something the user considered finished days ago.
+     *
+     * Also re-offers every completed trip to the XP ledger. That has to
+     * happen here rather than at the moment a trip finishes, because only
+     * one side is present then - the passenger is the one who confirms -
+     * so an award-on-the-spot design always leaves the other party owed
+     * with nowhere to record the debt. Re-offering is free to repeat: the
+     * ledger's derived IDs reject anything already paid.
+     */
+    fun startMissedRideReview(userId: String, isRider: Boolean) {
+        if (userId.isBlank()) return
+        startMissedRideSession(userId, isRider)
+    }
+
+    private fun startMissedRideSession(userId: String, isRider: Boolean) {
+        unfinishedLegsListener?.remove()
+
+        val onData: (List<RideRequest>) -> Unit = { legs ->
+            _uiState.value = _uiState.value.copy(unfinishedLegs = legs)
+        }
+
+        val onError: (Exception) -> Unit = { e ->
+            _uiState.value = _uiState.value.copy(
+                errorMessage = e.message ?: "Failed to load unfinished trips."
+            )
+        }
+
+        unfinishedLegsListener = if (isRider) {
+            repository.listenRiderUnfinishedLegs(userId, onData, onError)
+        } else {
+            repository.listenPassengerUnfinishedLegs(userId, onData, onError)
+        }
+
+        // Trip XP is claimed by re-offering every completed trip to the
+        // ledger, which also covers legs reconstructed through the
+        // missed-ride review: a reconciled leg reaches "completed" like
+        // any other, and the ledger's derived IDs stop the two paths ever
+        // both paying for it.
+        viewModelScope.launch {
+            xpRepository.claimTripXpFor(userId, isRider)
+        }
+    }
+
+    /**
+     * Records this user's answer to "did this ride actually happen?".
+     *
+     * The repository derives the outcome from both answers, so what comes
+     * back is either the leg's unchanged status (this was the first
+     * answer - the other side still has to validate) or one of the three
+     * terminal outcomes. Only a leg both sides vouched for pays out.
+     */
+    fun answerMissedRide(
+        request: RideRequest,
+        userId: String,
+        isRider: Boolean,
+        didHappen: Boolean,
+        onXpAwarded: () -> Unit = {}
+    ) {
+        val tripXpLabel = XpRules.amountFor(
+            XpRules.REASON_TOMORROW_TRIP,
+            if (isRider) XpRules.ROLE_RIDER else XpRules.ROLE_PASSENGER
+        )
+
+        setProcessing(request.requestId, true)
+
+        viewModelScope.launch {
+            val result = repository.submitMissedRideAnswer(
+                requestId = request.requestId,
+                userId = userId,
+                isRider = isRider,
+                answer = if (didHappen) MissedRideAnswer.YES else MissedRideAnswer.NO
+            )
+
+            setProcessing(request.requestId, false)
+
+            result.onSuccess { resolvedStatus ->
+                _uiState.value = _uiState.value.copy(
+                    successMessage = when (resolvedStatus) {
+                        RideRequestStatus.COMPLETED ->
+                            "Trip confirmed by both of you (+$tripXpLabel XP)"
+
+                        RideRequestStatus.NOT_COMPLETED ->
+                            "Both of you said this trip didn't happen. Closed."
+
+                        RideRequestStatus.UNVERIFIED ->
+                            "Your answers don't match, so this trip is marked " +
+                                    "not verified. It doesn't count for either of you."
+
+                        else ->
+                            "Answer saved. Waiting for the other person to confirm."
+                    }
+                )
+
+                // The leg is now "completed" like any other finished
+                // trip, so its XP is claimed through the ledger by the
+                // same sweep that handles the normal path.
+                if (resolvedStatus == RideRequestStatus.COMPLETED) {
+                    xpRepository.claimTripXpFor(userId, isRider)
+                    onXpAwarded()
+                }
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to save your answer."
+                )
+            }
+        }
+    }
+
+    // =====================================================================
     // Shared helpers
     // =====================================================================
 
     /**
-     * Turns a list of per-leg upsert results into one combined message.
-     * Any Blocked leg surfaces as an error (even if other legs saved fine)
-     * since the user needs to know a leg was left untouched. XP is only
-     * awarded once, and only if at least one leg was genuinely newly
-     * created - never for edits to an existing open leg.
+     * Turns a list of per-leg upsert results into one combined message,
+     * and offers the day's planning XP to the ledger.
+     *
+     * The award is keyed on the travel date, not on whether a leg happened
+     * to be newly created, which is what makes it un-farmable: planning
+     * any given day is worth its 2 XP exactly once, however many times the
+     * plan is edited - or deleted and rebuilt from scratch, which the old
+     * "5 XP per newly created leg" rule paid for every single time, since
+     * a still-pending plan is deletable.
      */
     private fun handlePlanSaveOutcome(
         results: List<Result<TomorrowLegResult>>,
-        xpAmount: Long,
+        userId: String,
+        isRider: Boolean,
+        rideDate: String,
         onXpAwarded: () -> Unit
     ) {
         val failures = results.mapNotNull { it.exceptionOrNull() }
@@ -737,29 +923,49 @@ class TomorrowRideViewModel(
         val legResults = results.mapNotNull { it.getOrNull() }
         val blockedReasons = legResults.filterIsInstance<TomorrowLegResult.Blocked>()
             .map { it.reason }
-        val anyNewlyCreated = legResults.filterIsInstance<TomorrowLegResult.Saved>()
-            .any { it.isNew }
+        val savedLegs = legResults.filterIsInstance<TomorrowLegResult.Saved>()
 
         if (blockedReasons.isNotEmpty()) {
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 errorMessage = blockedReasons.joinToString(" ")
             )
-        } else {
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                successMessage = if (anyNewlyCreated) {
-                    "Tomorrow plan saved (+$xpAmount XP)"
-                } else {
-                    "Tomorrow plan updated."
-                }
-            )
+            return
         }
 
-        if (anyNewlyCreated) {
-            userRepository.addXpToCurrentUser(xpAmount) { xpResult ->
-                xpResult.onSuccess { onXpAwarded() }
-            }
+        // Report the save immediately. The XP write must NEVER gate this:
+        // a Firestore write's Task only resolves on server acknowledgement,
+        // so awaiting the ledger before clearing isLoading left the Save
+        // button reading "Saving..." forever on a slow or offline
+        // connection - on a plan that had, in fact, already saved. That is
+        // what "I can't create a new tomorrow plan" turned out to be.
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            successMessage = "Tomorrow plan saved."
+        )
+
+        if (savedLegs.isEmpty()) return
+
+        // XP is a background afterthought. The ledger decides whether this
+        // day of planning is worth anything - it pays the first save for a
+        // travel date and nothing after - and the message is only amended
+        // once the points are genuinely banked.
+        viewModelScope.launch {
+            val awarded = xpRepository.awardXp(
+                userId = userId,
+                reason = XpRules.REASON_PLAN_SAVED,
+                role = if (isRider) XpRules.ROLE_RIDER else XpRules.ROLE_PASSENGER,
+                sourceId = savedLegs.first().docId,
+                dedupeKey = XpRules.planDedupeKey(rideDate)
+            )
+
+            if (!awarded) return@launch
+
+            _uiState.value = _uiState.value.copy(
+                successMessage = "Tomorrow plan saved (+${XpRules.PLAN_SAVED_XP} XP)"
+            )
+
+            onXpAwarded()
         }
     }
 
@@ -781,5 +987,7 @@ class TomorrowRideViewModel(
         acceptedRequestsListener?.remove()
         requestsListener?.remove()
         activeRidesListener?.remove()
+        unfinishedLegsListener?.remove()
     }
+
 }

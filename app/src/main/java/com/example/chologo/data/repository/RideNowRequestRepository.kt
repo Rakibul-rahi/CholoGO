@@ -4,10 +4,13 @@ import com.example.chologo.data.model.LiveRide
 import com.example.chologo.data.model.RideHistory
 import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
+import com.example.chologo.data.model.VehicleType
+import com.example.chologo.data.model.isAbandoned
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Transaction
 import kotlinx.coroutines.tasks.await
 
 class RideNowRequestRepository(
@@ -298,6 +301,12 @@ class RideNowRequestRepository(
                         "matchedRiderId" to riderId,
                         "matchedRiderName" to riderName,
                         "matchedRiderPhone" to riderPhone,
+                        // Copied off the live ride so the passenger knows
+                        // which vehicle is coming for them.
+                        "matchedVehicleType" to VehicleType.normalize(ride.vehicleType),
+                        "matchedVehicleModel" to ride.vehicleModel,
+                        "matchedVehicleNumber" to ride.vehicleNumber,
+                        "matchedVehicleColor" to ride.vehicleColor,
                         "acceptedAt" to now,
                         "rideStartedByRider" to false,
                         "rideConfirmedByPassenger" to false,
@@ -609,6 +618,204 @@ class RideNowRequestRepository(
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    // ---------- Abandonment escape hatches ----------
+
+    /**
+     * Releases a matched rider's LiveRide inside an already-open
+     * transaction. Identical to the writes in cancelAcceptedRideNowTrip /
+     * passengerConfirmRideNowCompleted - see the note there for why the
+     * fields are "available"/"liveNow" and not the Kotlin property names,
+     * and why the rider goes fully inactive rather than just free again.
+     */
+    private fun releaseLiveRide(
+        transaction: Transaction,
+        liveRideId: String,
+        now: Timestamp
+    ) {
+        transaction.update(
+            liveRidesRef.document(liveRideId),
+            mapOf(
+                "status" to "inactive",
+                "available" to false,
+                "liveNow" to false,
+                "currentRequestId" to "",
+                "lastUpdatedAt" to now
+            )
+        )
+    }
+
+    /**
+     * Lets the matched rider walk away from a trip the passenger never
+     * got into: still ACCEPTED (no-show at the pickup), or
+     * START_PENDING_CONFIRMATION (the rider pressed Start and the
+     * passenger never confirmed).
+     *
+     * Without this the rider is genuinely trapped - riderStartRideNowTrip
+     * only accepts ACCEPTED, riderRequestRideNowCompletion only accepts
+     * ONGOING, and stopLiveRide refuses outright while a matched trip is
+     * open. The trip is CANCELLED rather than unverified because nobody
+     * is claiming it happened.
+     */
+    suspend fun riderCancelUnstartedTrip(
+        requestId: String,
+        riderId: String
+    ): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideNowRequestsRef.document(requestId)
+                val request = transaction.get(requestDoc)
+                    .toObject(RideNowRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.matchedRiderId != riderId) {
+                    throw Exception("This trip isn't matched to you.")
+                }
+
+                if (request.status != RideNowStatus.ACCEPTED &&
+                    request.status != RideNowStatus.START_PENDING_CONFIRMATION
+                ) {
+                    throw Exception("Only a trip that never started can be cancelled here.")
+                }
+
+                val now = Timestamp.now()
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideNowStatus.CANCELLED,
+                        "cancelledAt" to now,
+                        "closedByRole" to "rider",
+                        "closedAt" to now
+                    )
+                )
+
+                if (request.matchedRideId.isNotBlank()) {
+                    releaseLiveRide(transaction, request.matchedRideId, now)
+                }
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Closes a trip that was actually driven but which the passenger never
+     * confirmed the end of - the ONGOING passenger who never taps anything
+     * again, and the END_PENDING_CONFIRMATION passenger who ignores "did
+     * you arrive safely?".
+     *
+     * The outcome is UNVERIFIED, not COMPLETED, and that distinction is
+     * the whole point: only the rider ever vouched for this trip, so it
+     * gets no ride_history entry and no rating. It exists purely to free
+     * both sides. The passenger keeps a strictly better option for as long
+     * as they want it - confirming completion themselves, which is the
+     * path that does count.
+     */
+    suspend fun riderCloseUnconfirmedTrip(
+        requestId: String,
+        riderId: String
+    ): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val requestDoc = rideNowRequestsRef.document(requestId)
+                val request = transaction.get(requestDoc)
+                    .toObject(RideNowRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                if (request.matchedRiderId != riderId) {
+                    throw Exception("This trip isn't matched to you.")
+                }
+
+                if (request.status != RideNowStatus.ONGOING &&
+                    request.status != RideNowStatus.END_PENDING_CONFIRMATION
+                ) {
+                    throw Exception("Only a trip already under way can be closed here.")
+                }
+
+                val now = Timestamp.now()
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideNowStatus.UNVERIFIED,
+                        "closedByRole" to "rider",
+                        "closedAt" to now
+                    )
+                )
+
+                if (request.matchedRideId.isNotBlank()) {
+                    releaseLiveRide(transaction, request.matchedRideId, now)
+                }
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Backstop sweep, run when the passenger's Ride Now tab opens: closes
+     * out any of their own matched requests that have shown no progress
+     * for RideNowAbandonment.STALE_HOURS.
+     *
+     * This is what un-sticks a passenger looking at yesterday's trip.
+     * listenPassengerActiveRide deliberately has no age bound, and a
+     * matched request never expires on its own (expireRequestIfNeeded only
+     * ever touches "searching"), so an abandoned trip pins the passenger
+     * on its lifecycle card forever - unable to cancel it (the accepted
+     * card offered no way out) and unable to request a new ride
+     * (createRideNowRequest rejects them as already active). The rider, by
+     * contrast, always escaped: forceReleaseStaleLiveRides wipes their
+     * LiveRide clean on the next Go Live.
+     *
+     * Returns how many requests were closed. Best-effort by design -
+     * failures are swallowed per request so one bad document can't block
+     * the rest of the sweep, or the tab.
+     */
+    suspend fun closeAbandonedPassengerRequests(passengerId: String): Int {
+        return try {
+            val snapshot = rideNowRequestsRef
+                .whereEqualTo("passengerId", passengerId)
+                .whereIn("status", RideNowStatus.MATCHED_STATUSES)
+                .get()
+                .await()
+
+            val nowSeconds = Timestamp.now().seconds
+
+            val abandoned = snapshot.documents
+                .mapNotNull { doc ->
+                    doc.toObject(RideNowRequest::class.java)?.copy(requestId = doc.id)
+                }
+                .filter { it.isAbandoned(nowSeconds) }
+
+            var closed = 0
+
+            abandoned.forEach { request ->
+                // Reuses the ordinary passenger cancellation so the rider's
+                // LiveRide is released the same way it would be on a manual
+                // cancel - an abandoned trip that freed the passenger but
+                // left the rider pinned would just move the problem.
+                val result = if (request.matchedRideId.isNotBlank()) {
+                    cancelAcceptedRideNowTrip(
+                        requestId = request.requestId,
+                        liveRideId = request.matchedRideId
+                    )
+                } else {
+                    cancelRideNowRequest(request.requestId)
+                }
+
+                if (result.isSuccess) closed++
+            }
+
+            closed
+        } catch (_: Exception) {
+            0
         }
     }
 

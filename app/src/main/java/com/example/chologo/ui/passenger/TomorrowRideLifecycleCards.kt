@@ -6,13 +6,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
@@ -20,18 +20,21 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.RideRequest
+import com.example.chologo.data.model.VehicleType
 
 /**
  * Five states of a matched Tomorrow leg, mirroring the Ride Now lifecycle
@@ -40,6 +43,42 @@ import com.example.chologo.data.model.RideRequest
  * (PassengerSectionCard/MiniBadge/RideMetaRow/Lime-accent theme) instead of
  * copying Ride Now's plainer default-Material3 cards.
  */
+
+/**
+ * Everything a passenger needs to actually find and reach their rider:
+ * which vehicle to look for, and the number to call. Shown on every card
+ * from acceptance through to the end of the trip, since "which car is mine"
+ * is exactly the question being asked at the kerb.
+ *
+ * The vehicle line falls back to a plain "Bike"/"Car" when the rider filled
+ * in no details, and legacy matches with no stored vehicle at all read as
+ * "Bike" - which is what every pre-car rider was.
+ */
+@Composable
+private fun MatchedRiderVehicleRows(request: RideRequest) {
+    val details = VehicleType.detailsSummary(
+        request.matchedVehicleType,
+        request.matchedVehicleModel,
+        request.matchedVehicleNumber,
+        request.matchedVehicleColor
+    )
+
+    RideMetaRow(
+        if (VehicleType.isCar(request.matchedVehicleType)) {
+            Icons.Default.DirectionsCar
+        } else {
+            Icons.Default.TwoWheeler
+        },
+        details ?: VehicleType.label(request.matchedVehicleType)
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    RideMetaRow(
+        Icons.Default.Call,
+        request.matchedRiderPhone.ifBlank { "Contact not shared" }
+    )
+}
 
 @Composable
 fun TomorrowRideAcceptedCard(
@@ -66,6 +105,8 @@ fun TomorrowRideAcceptedCard(
         RideMetaRow(Icons.Default.Schedule, request.tripTime)
         Spacer(modifier = Modifier.height(8.dp))
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Accepted rider" })
+        Spacer(modifier = Modifier.height(8.dp))
+        MatchedRiderVehicleRows(request)
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -103,6 +144,8 @@ fun TomorrowRideStartConfirmationCard(
         RideMetaRow(Icons.Default.LocationOn, "${request.pickup} → ${request.destination}")
         Spacer(modifier = Modifier.height(8.dp))
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Your rider" })
+        Spacer(modifier = Modifier.height(8.dp))
+        MatchedRiderVehicleRows(request)
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -131,6 +174,12 @@ fun TomorrowRideStartConfirmationCard(
     }
 }
 
+/**
+ * Deliberately the same card as Ride Now's PassengerRideOngoingCard, down
+ * to the pulsing badge and the vehicle panel. A passenger sitting in a car
+ * does not care whether they booked it yesterday or two minutes ago, and
+ * the two should not look like different apps at the same moment.
+ */
 @Composable
 fun TomorrowRideOngoingCard(
     request: RideRequest,
@@ -138,31 +187,48 @@ fun TomorrowRideOngoingCard(
 ) {
     PassengerSectionCard(
         title = "Trip in Progress",
-        subtitle = "You are currently on the ride.",
-        icon = "🏍️"
+        subtitle = "You're on your way. Your rider will mark the trip complete on arrival.",
+        icon = VehicleType.emoji(request.matchedVehicleType)
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MiniBadge(text = "Ongoing", accent = AccentBlue)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LivePulseBadge()
+            MiniBadge(text = request.tripTime.ifBlank { "Now" }, accent = AccentBlue)
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        RideMetaRow(Icons.Default.LocationOn, "${request.pickup} → ${request.destination}")
-        Spacer(modifier = Modifier.height(8.dp))
+        ActiveRouteLine(
+            pickup = request.pickup,
+            destination = request.destination
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OngoingVehiclePanel(
+            vehicleType = request.matchedVehicleType,
+            vehicleModel = request.matchedVehicleModel,
+            vehicleNumber = request.matchedVehicleNumber,
+            vehicleColor = request.matchedVehicleColor
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Your rider" })
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        OutlinedButton(
+        Button(
             onClick = onCallRider,
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, Lime),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Lime),
-            modifier = Modifier.fillMaxWidth()
+            colors = ButtonDefaults.buttonColors(containerColor = Lime, contentColor = Color.Black)
         ) {
             Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Call Rider")
+            Text("Call Rider", fontWeight = FontWeight.Bold)
         }
     }
 }

@@ -1,14 +1,21 @@
 package com.example.chologo.data.repository
 
+import com.example.chologo.data.model.MissedRideAnswer
 import com.example.chologo.data.model.Ride
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.data.model.RideRequestStatus
+import com.example.chologo.data.model.VehicleType
+import com.example.chologo.data.model.answerFor
 import com.example.chologo.data.model.buildRouteKey
+import com.example.chologo.data.model.resolvedStatusAfter
+import com.example.chologo.data.model.seatCapacity
+import com.example.chologo.data.model.seatsTaken
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -42,8 +49,7 @@ class TomorrowRideRepository(
     private val ridesRef = db.collection("rides")
     private val rideRequestsRef = db.collection("ride_requests")
 
-    // TODO: replace with your actual Render URL once deployed.
-    private val apiBaseUrl = "https://chologo-api.onrender.com"
+    private val apiBaseUrl = "https://chologo.onrender.com"
 
     // Generous timeouts: Render's free tier sleeps after 15 min of
     // inactivity and can take 30-60s to wake up on the next request.
@@ -89,10 +95,16 @@ class TomorrowRideRepository(
 
     /**
      * Creates a new ride for this direction/date, or updates the existing
-     * one in place if it's still "active" (unmatched). Refuses (returns
-     * Blocked, not an exception) if the existing ride for this direction is
-     * already matched with a passenger - editing must not silently destroy
-     * an active match. This mirrors what the rules now enforce server-side.
+     * one in place while nobody has claimed a seat on it yet. Refuses
+     * (returns Blocked, not an exception) once any passenger has been
+     * accepted - editing must not silently destroy an active match.
+     *
+     * Note the seat check is "has anyone been accepted", not "is the status
+     * still active": a 4-seat car with one passenger on board is still
+     * "active" (it has seats left to sell) but absolutely must not have its
+     * route, time or capacity rewritten under that passenger. A bike hits
+     * "full" on its first accept, so for bikes the two checks coincide -
+     * which is why the old status-only check was sufficient before cars.
      */
     suspend fun upsertRiderRide(
         riderId: String,
@@ -102,9 +114,16 @@ class TomorrowRideRepository(
         pickup: String,
         destination: String,
         tripTime: String,
-        timeMinutes: Int
+        timeMinutes: Int,
+        vehicleType: String,
+        vehicleModel: String,
+        vehicleNumber: String,
+        vehicleColor: String,
+        requestedSeats: Int
     ): Result<TomorrowLegResult> {
         return try {
+            val normalizedVehicleType = VehicleType.normalize(vehicleType)
+            val seats = VehicleType.resolveSeats(normalizedVehicleType, requestedSeats)
             val existingDoc = ridesRef
                 .whereEqualTo("riderId", riderId)
                 .whereEqualTo("rideDate", rideDate)
@@ -119,7 +138,7 @@ class TomorrowRideRepository(
             val routeKey = buildRouteKey(tripDirection, pickup, destination)
 
             if (existing != null) {
-                if (existing.status != "active") {
+                if (existing.status != "active" || existing.seatsTaken() > 0) {
                     return Result.success(
                         TomorrowLegResult.Blocked(
                             "Your ${tripDirection.readableDirection()} ride is already " +
@@ -137,7 +156,14 @@ class TomorrowRideRepository(
                             "tripTime" to tripTime,
                             "timeMinutes" to timeMinutes,
                             "routeKey" to routeKey,
-                            "availableSeats" to 1,
+                            "vehicleType" to normalizedVehicleType,
+                            "vehicleModel" to vehicleModel,
+                            "vehicleNumber" to vehicleNumber,
+                            "vehicleColor" to vehicleColor,
+                            // Safe to reset both outright: we only reach here
+                            // with zero seats taken.
+                            "totalSeats" to seats,
+                            "availableSeats" to seats,
                             "status" to "active"
                         )
                     )
@@ -158,7 +184,12 @@ class TomorrowRideRepository(
                 timeMinutes = timeMinutes,
                 routeKey = routeKey,
                 rideDate = rideDate,
-                availableSeats = 1,
+                vehicleType = normalizedVehicleType,
+                vehicleModel = vehicleModel,
+                vehicleNumber = vehicleNumber,
+                vehicleColor = vehicleColor,
+                totalSeats = seats,
+                availableSeats = seats,
                 status = "active",
                 isTomorrowSetup = true,
                 createdAt = Timestamp.now()
@@ -252,16 +283,145 @@ class TomorrowRideRepository(
                     )
                 )
 
+                // Give the seat back, but never above the capacity the rider
+                // actually opened - otherwise repeated cancel/accept cycles
+                // could inflate a 2-seat car into a 5-seat one.
                 transaction.update(
                     rideDoc,
                     mapOf(
-                        "availableSeats" to (ride.availableSeats + 1),
+                        "availableSeats" to (ride.availableSeats + 1)
+                            .coerceAtMost(ride.seatCapacity()),
                         "status" to "active"
                     )
                 )
             }.await()
 
             Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // ---------- Missed-trip reconciliation ----------
+
+    /**
+     * Every leg still sitting in an unfinished lifecycle status for this
+     * user, across *all* dates - deliberately not filtered to one
+     * rideDate like the listeners above.
+     *
+     * That date filter is exactly why a missed ride disappears today: the
+     * Tomorrow tab only ever listens for tomorrow's key, so a leg booked
+     * on Monday for Tuesday 8:00 AM becomes invisible the moment Tuesday
+     * arrives, and can never be finished, rated, or cleared. This listener
+     * is the way back to it. Callers narrow the result down to the
+     * genuinely overdue ones with RideRequest.needsMissedRideReview().
+     */
+    fun listenPassengerUnfinishedLegs(
+        userId: String,
+        onData: (List<RideRequest>) -> Unit,
+        onError: (Exception) -> Unit
+    ): ListenerRegistration {
+        return rideRequestsRef
+            .whereEqualTo("userId", userId)
+            .whereIn("status", RideRequestStatus.UNFINISHED_LIFECYCLE_STATUSES)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    onError(error)
+                    return@addSnapshotListener
+                }
+
+                onData(snapshot.toRideRequests())
+            }
+    }
+
+    /** Rider-side counterpart of [listenPassengerUnfinishedLegs]. */
+    fun listenRiderUnfinishedLegs(
+        riderId: String,
+        onData: (List<RideRequest>) -> Unit,
+        onError: (Exception) -> Unit
+    ): ListenerRegistration {
+        return rideRequestsRef
+            .whereEqualTo("matchedRiderId", riderId)
+            .whereIn("status", RideRequestStatus.UNFINISHED_LIFECYCLE_STATUSES)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    onError(error)
+                    return@addSnapshotListener
+                }
+
+                onData(snapshot.toRideRequests())
+            }
+    }
+
+    /**
+     * Records one side's answer to "did this ride actually happen?" for a
+     * leg that was never driven through the normal Start/Complete flow.
+     *
+     * The first answer only stores itself and leaves the status alone -
+     * there is nothing to conclude from one voice. The second answer also
+     * resolves the leg, and the outcome is derived by
+     * RideRequest.resolvedStatusAfter() rather than being passed in, so
+     * neither side can pick its own verdict:
+     *   both "yes"  -> COMPLETED   (counts, and unlocks the XP claim)
+     *   both "no"   -> NOT_COMPLETED
+     *   disagreeing -> UNVERIFIED  (explicitly not finished; counts for
+     *                               nobody)
+     *
+     * Answering is one-shot per side: a second attempt fails rather than
+     * silently overwriting, which is also what firestore.rules enforces.
+     */
+    suspend fun submitMissedRideAnswer(
+        requestId: String,
+        userId: String,
+        isRider: Boolean,
+        answer: String
+    ): Result<String> {
+        if (answer != MissedRideAnswer.YES && answer != MissedRideAnswer.NO) {
+            return Result.failure(Exception("Invalid answer."))
+        }
+
+        return try {
+            val resolvedStatus = db.runTransaction { transaction ->
+                val requestDoc = rideRequestsRef.document(requestId)
+                val request = transaction.get(requestDoc)
+                    .toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid ride request data.")
+
+                val ownerId = if (isRider) request.matchedRiderId else request.userId
+                if (ownerId != userId) {
+                    throw Exception("This trip isn't yours to confirm.")
+                }
+
+                if (request.status !in RideRequestStatus.UNFINISHED_LIFECYCLE_STATUSES) {
+                    throw Exception("This trip has already been closed.")
+                }
+
+                if (request.answerFor(isRider).isNotBlank()) {
+                    throw Exception("You already answered for this trip.")
+                }
+
+                val newStatus = request.resolvedStatusAfter(isRider, answer)
+                val now = Timestamp.now()
+
+                val updates = mutableMapOf<String, Any?>(
+                    "status" to newStatus,
+                    (if (isRider) "riderHappenedAnswer" else "passengerHappenedAnswer") to answer,
+                    (if (isRider) "riderAnsweredAt" else "passengerAnsweredAt") to now
+                )
+
+                // completedAt is what the rest of the app reads as "when
+                // did this trip end", and a leg reconciled all the way to
+                // COMPLETED never got a real one.
+                if (newStatus == RideRequestStatus.COMPLETED) {
+                    updates["completedAt"] = now
+                }
+
+                transaction.update(requestDoc, updates)
+
+                newStatus
+            }.await()
+
+            Result.success(resolvedStatus)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -435,7 +595,9 @@ class TomorrowRideRepository(
                 throw Exception("You can only remove your own rides.")
             }
 
-            if (ride.status != "active") {
+            // Same reasoning as upsertRiderRide: a part-full car is still
+            // "active" but already has a passenger counting on it.
+            if (ride.status != "active" || ride.seatsTaken() > 0) {
                 throw Exception(
                     "This ride is already matched with a passenger and can't be removed here."
                 )
@@ -548,6 +710,10 @@ class TomorrowRideRepository(
                             "matchedRiderName" to "",
                             "matchedRiderPhone" to "",
                             "matchedRideTime" to "",
+                            "matchedVehicleType" to "",
+                            "matchedVehicleModel" to "",
+                            "matchedVehicleNumber" to "",
+                            "matchedVehicleColor" to "",
                             "acceptedAt" to null,
                             "cancelledBy" to "",
                             "cancelledByRole" to "",
@@ -821,6 +987,13 @@ class TomorrowRideRepository(
                         "matchedRiderName" to riderName,
                         "matchedRiderPhone" to riderPhone,
                         "matchedRideTime" to ride.tripTime,
+                        // Copied off the ride so the passenger can see which
+                        // vehicle to look for without reading the rider's
+                        // own document.
+                        "matchedVehicleType" to VehicleType.normalize(ride.vehicleType),
+                        "matchedVehicleModel" to ride.vehicleModel,
+                        "matchedVehicleNumber" to ride.vehicleNumber,
+                        "matchedVehicleColor" to ride.vehicleColor,
                         "acceptedAt" to now
                     )
                 )
@@ -847,4 +1020,17 @@ private fun String.readableDirection(): String {
         "to_home" -> "return"
         else -> this
     }
+}
+
+/**
+ * Standard snapshot -> RideRequest mapping used by the missed-ride
+ * listeners: always toObject(), with the document id stamped back on
+ * since requestId isn't stored inside the document itself.
+ */
+private fun QuerySnapshot?.toRideRequests(): List<RideRequest> {
+    return this?.documents
+        ?.mapNotNull { doc ->
+            doc.toObject(RideRequest::class.java)?.copy(requestId = doc.id)
+        }
+        ?: emptyList()
 }

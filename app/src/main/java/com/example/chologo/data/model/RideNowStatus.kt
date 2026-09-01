@@ -60,6 +60,15 @@ object RideNowStatus {
     const val ISSUE_REPORTED = "issue_reported"
 
     /**
+     * The rider closed a trip the passenger never confirmed - they pressed
+     * Ride Completed (or the trip was already ongoing) and the passenger
+     * simply stopped responding. Terminal, and deliberately not COMPLETED:
+     * only one side ever vouched for it, so it earns no history entry and
+     * no rating. Mirrors RideRequestStatus.UNVERIFIED on the Tomorrow side.
+     */
+    const val UNVERIFIED = "unverified"
+
+    /**
      * Helper list for active rides.
      */
     val ACTIVE_STATUSES = listOf(
@@ -78,6 +87,21 @@ object RideNowStatus {
         COMPLETED,
         CANCELLED,
         EXPIRED,
-        ISSUE_REPORTED
+        ISSUE_REPORTED,
+        UNVERIFIED
+    )
+
+    /**
+     * Statuses where a rider has already committed to a passenger. These
+     * are the ones that can strand either side if the other stops
+     * responding, so they're what the abandonment escape hatches
+     * (RideNowRequestRepository.riderCancelUnstartedTrip /
+     * riderCloseUnconfirmedTrip) and the stale sweep operate on.
+     */
+    val MATCHED_STATUSES = listOf(
+        ACCEPTED,
+        START_PENDING_CONFIRMATION,
+        ONGOING,
+        END_PENDING_CONFIRMATION
     )
 }

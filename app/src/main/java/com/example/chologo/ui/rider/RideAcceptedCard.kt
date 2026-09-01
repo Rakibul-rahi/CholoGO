@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.RideNowRequest
+import com.example.chologo.data.model.VehicleType
 import com.example.chologo.ui.rider.AccentEmerald
 import com.example.chologo.ui.rider.AccentRed
 import com.example.chologo.ui.rider.BgDeep
@@ -230,12 +231,20 @@ private fun RideAcceptedInfoSection(
             value = request.tripTime.ifBlank { "Now" }
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        // Only the passenger needs this - a rider knows their own vehicle.
+        if (!isRider) {
+            Spacer(modifier = Modifier.height(8.dp))
 
-        RideAcceptedInfoRow(
-            label = "Fare",
-            value = "${getEstimatedRideNowFare(request)} Tk"
-        )
+            RideAcceptedInfoRow(
+                label = "Vehicle",
+                value = VehicleType.detailsSummary(
+                    request.matchedVehicleType,
+                    request.matchedVehicleModel,
+                    request.matchedVehicleNumber,
+                    request.matchedVehicleColor
+                ) ?: VehicleType.label(request.matchedVehicleType)
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -343,13 +352,4 @@ private fun isProcessingButton(
     enabled: Boolean
 ): Boolean {
     return !enabled && text == "Started"
-}
-
-private fun getEstimatedRideNowFare(request: RideNowRequest): Int {
-    return when {
-        request.pickup.equals("AUST Gate", ignoreCase = true) ||
-                request.destination.equals("AUST Gate", ignoreCase = true) -> 40
-
-        else -> 50
-    }
 }

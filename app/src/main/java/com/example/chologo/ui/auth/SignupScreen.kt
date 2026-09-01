@@ -84,6 +84,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.data.model.VehicleType
 
 // ─── Palette matching LoginScreen / AuthChoiceScreen ─────────────────────────
 private val Void        = Color(0xFF050709)
@@ -151,8 +152,12 @@ fun SignupScreen(
         studentId: String,
         university: String,
         homeLocation: String,
-        password: String
-    ) -> Unit = { _, _, _, _, _, _, _, _ -> },
+        password: String,
+        vehicleType: String,
+        vehicleModel: String,
+        vehicleNumber: String,
+        vehicleColor: String
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onLoginClick: () -> Unit = {},
     onBackClick: (() -> Unit)? = null,
     isLoading: Boolean = false,
@@ -181,6 +186,14 @@ fun SignupScreen(
     var studentId by rememberSaveable { mutableStateOf("") }
     var university by rememberSaveable { mutableStateOf("AUST") }
     var homeLocation by rememberSaveable { mutableStateOf("Mirpur") }
+
+    // Rider-only, and only sent when RIDER is the selected role. Defaults to
+    // bike so a rider who never touches the picker gets the same account
+    // every rider had before cars existed.
+    var vehicleType by rememberSaveable { mutableStateOf(VehicleType.BIKE) }
+    var vehicleModel by rememberSaveable { mutableStateOf("") }
+    var vehicleNumber by rememberSaveable { mutableStateOf("") }
+    var vehicleColor by rememberSaveable { mutableStateOf("") }
 
     var password by rememberSaveable { mutableStateOf("") }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
@@ -345,6 +358,27 @@ fun SignupScreen(
                         isSelected = selectedRole == UserRole.RIDER,
                         onClick = { selectedRole = UserRole.RIDER },
                         modifier = Modifier.weight(1f),
+                        enabled = !isLoading
+                    )
+                }
+
+                // Only a rider has a vehicle to describe.
+                if (selectedRole == UserRole.RIDER) {
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    PremiumSectionLabel("I ride a")
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    VehicleSelectionSection(
+                        vehicleType = vehicleType,
+                        onVehicleTypeChange = { vehicleType = it },
+                        vehicleModel = vehicleModel,
+                        onVehicleModelChange = { vehicleModel = it },
+                        vehicleNumber = vehicleNumber,
+                        onVehicleNumberChange = { vehicleNumber = it },
+                        vehicleColor = vehicleColor,
+                        onVehicleColorChange = { vehicleColor = it },
                         enabled = !isLoading
                     )
                 }
@@ -636,6 +670,8 @@ fun SignupScreen(
                             else -> {
                                 errorText = ""
 
+                                val isRider = selectedRole == UserRole.RIDER
+
                                 onSignupClick(
                                     selectedRole,
                                     name.trim(),
@@ -644,7 +680,14 @@ fun SignupScreen(
                                     studentId.trim(),
                                     university.trim(),
                                     homeLocation.trim(),
-                                    password
+                                    password,
+                                    // A passenger who briefly toggled to
+                                    // Rider and back shouldn't carry stray
+                                    // vehicle text onto their account.
+                                    if (isRider) vehicleType else "",
+                                    if (isRider) vehicleModel.trim() else "",
+                                    if (isRider) vehicleNumber.trim() else "",
+                                    if (isRider) vehicleColor.trim() else ""
                                 )
                             }
                         }

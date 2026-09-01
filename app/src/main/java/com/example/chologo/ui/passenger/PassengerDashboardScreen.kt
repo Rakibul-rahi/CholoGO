@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,7 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.chologo.navigation.Screen
-import com.example.chologo.repository.UserRepository
+import com.example.chologo.data.repository.XpRepository
+import com.example.chologo.utils.LevelSystem
 import com.example.chologo.ui.common.CholoGoTabRow
 import com.example.chologo.ui.common.CholoGoTopBar
 import com.example.chologo.ui.common.GuestSignInBanner
@@ -51,7 +53,6 @@ fun PassengerDashboardScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
 
     val authState by authViewModel.uiState.collectAsState()
-    val userRepository = remember { UserRepository() }
 
     // Checked once per composition: this screen is now also the app's
     // signed-out landing page, so reads/writes that need an account are
@@ -67,44 +68,49 @@ fun PassengerDashboardScreen(
         }
     }
 
+    val xpRepository = remember { XpRepository() }
+
     LaunchedEffect(Unit) {
         if (!isGuest) {
             authViewModel.loadCurrentUser()
-
-            userRepository.getCurrentUserData { result ->
-                result.onSuccess { user ->
-                    passengerXp = user.xp
-                    isLevelLoading = false
-                }.onFailure {
-                    passengerXp = 0L
-                    isLevelLoading = false
-                }
-            }
-        }
-    }
-
-    val level = remember(passengerXp) {
-        calculatePassengerLevel(passengerXp)
-    }
-
-    val levelTitle = remember(level) {
-        getPassengerLevelTitle(level)
-    }
-
-    val xpNeededForNextLevel = remember(level) {
-        getNextLevelXp(level)
-    }
-
-    val progress = remember(passengerXp, level, xpNeededForNextLevel) {
-        val previousLevelXp = getPreviousLevelXp(level)
-        val xpInCurrentLevel = passengerXp - previousLevelXp
-        val xpRange = xpNeededForNextLevel - previousLevelXp
-
-        if (xpRange <= 0L) {
-            0f
         } else {
-            (xpInCurrentLevel.toFloat() / xpRange.toFloat()).coerceIn(0f, 1f)
+            isLevelLoading = false
         }
+    }
+
+    // XP comes from the ledger, not from users/{uid}.xp - see the note on
+    // the rider dashboard.
+    DisposableEffect(authState.userId, isGuest) {
+        if (isGuest || authState.userId.isBlank()) {
+            return@DisposableEffect onDispose { }
+        }
+
+        val registration = xpRepository.listenTotalXp(
+            userId = authState.userId,
+            onData = { total ->
+                passengerXp = total
+                isLevelLoading = false
+            },
+            onError = {
+                isLevelLoading = false
+            }
+        )
+
+        onDispose { registration.remove() }
+    }
+
+    LaunchedEffect(authState.userId, isGuest) {
+        if (!isGuest && authState.userId.isNotBlank()) {
+            xpRepository.claimTripXpFor(authState.userId, isRider = false)
+        }
+    }
+
+    // One curve for both roles. The passenger side used to carry its own
+    // private thresholds (150/400/700/...) alongside LevelSystem's
+    // (100/250/450/...), so the same XP showed a different level depending
+    // on which screen you happened to be looking at.
+    val levelInfo = remember(passengerXp) {
+        LevelSystem.getLevelInfo(passengerXp)
     }
 
     Surface(
@@ -155,11 +161,19 @@ fun PassengerDashboardScreen(
                     GuestSignInBanner(onSignInClick = onRequireLogin)
                 } else {
                     LevelCard(
-                        level = if (isLevelLoading) 1 else level,
-                        levelTitle = if (isLevelLoading) "Campus Starter" else levelTitle,
-                        currentXp = if (isLevelLoading) 0L else passengerXp,
-                        xpNeededForNextLevel = if (isLevelLoading) 150L else xpNeededForNextLevel,
-                        progress = if (isLevelLoading) 0f else progress,
+                        level = if (isLevelLoading) 1 else levelInfo.level,
+                        levelTitle = if (isLevelLoading) {
+                            LevelSystem.getLevelTitle(1)
+                        } else {
+                            levelInfo.levelTitle
+                        },
+                        currentXp = if (isLevelLoading) 0L else levelInfo.currentXp,
+                        xpNeededForNextLevel = if (isLevelLoading) {
+                            100L
+                        } else {
+                            levelInfo.xpNeededForNextLevel
+                        },
+                        progress = if (isLevelLoading) 0f else levelInfo.progressFraction,
                         userName = authState.userName.ifBlank { "Passenger" }
                     )
                 }
@@ -200,10 +214,6 @@ fun PassengerDashboardScreen(
 
                             1 -> PassengerTomorrowTab(
                                 authViewModel = authViewModel,
-                                userRepository = userRepository,
-                                onXpUpdated = { updatedXp ->
-                                    passengerXp = updatedXp
-                                },
                                 onRequireLogin = onRequireLogin
                             )
                         }
@@ -211,66 +221,5 @@ fun PassengerDashboardScreen(
                 }
             }
         }
-    }
-}
-
-private fun calculatePassengerLevel(xp: Long): Int {
-    return when {
-        xp >= 5000L -> 10
-        xp >= 4000L -> 9
-        xp >= 3000L -> 8
-        xp >= 2200L -> 7
-        xp >= 1600L -> 6
-        xp >= 1100L -> 5
-        xp >= 700L -> 4
-        xp >= 400L -> 3
-        xp >= 150L -> 2
-        else -> 1
-    }
-}
-
-private fun getPreviousLevelXp(level: Int): Long {
-    return when (level) {
-        1 -> 0L
-        2 -> 150L
-        3 -> 400L
-        4 -> 700L
-        5 -> 1100L
-        6 -> 1600L
-        7 -> 2200L
-        8 -> 3000L
-        9 -> 4000L
-        10 -> 5000L
-        else -> 0L
-    }
-}
-
-private fun getNextLevelXp(level: Int): Long {
-    return when (level) {
-        1 -> 150L
-        2 -> 400L
-        3 -> 700L
-        4 -> 1100L
-        5 -> 1600L
-        6 -> 2200L
-        7 -> 3000L
-        8 -> 4000L
-        9 -> 5000L
-        else -> 6000L
-    }
-}
-
-private fun getPassengerLevelTitle(level: Int): String {
-    return when (level) {
-        1 -> "Campus Starter"
-        2 -> "Route Explorer"
-        3 -> "Daily Passenger"
-        4 -> "Campus Regular"
-        5 -> "Smart Commuter"
-        6 -> "Ride Pro"
-        7 -> "AUST Traveler"
-        8 -> "Priority Passenger"
-        9 -> "Elite Commuter"
-        else -> "CholoGO Legend"
     }
 }

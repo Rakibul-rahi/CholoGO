@@ -1,6 +1,7 @@
 package com.example.chologo.repository
 
 import com.example.chologo.data.model.User
+import com.example.chologo.data.model.VehicleType
 import com.example.chologo.ui.auth.UserRole
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
@@ -21,6 +22,10 @@ class UserRepository {
         university: String,
         homeLocation: String,
         password: String,
+        vehicleType: String = "",
+        vehicleModel: String = "",
+        vehicleNumber: String = "",
+        vehicleColor: String = "",
         onResult: (Result<User>) -> Unit
     ) {
         auth.createUserWithEmailAndPassword(email, password)
@@ -33,6 +38,7 @@ class UserRepository {
                 }
 
                 val roleString = role.name.lowercase()
+                val isRider = role == UserRole.RIDER
 
                 val user = User(
                     uid = uid,
@@ -40,6 +46,12 @@ class UserRepository {
                     email = email,
                     phone = phone,
                     role = roleString,
+                    // Vehicle details are meaningless on a passenger account,
+                    // so they're dropped rather than stored as dead fields.
+                    vehicleType = if (isRider) VehicleType.normalize(vehicleType) else "",
+                    vehicleModel = if (isRider) vehicleModel.trim() else "",
+                    vehicleNumber = if (isRider) vehicleNumber.trim() else "",
+                    vehicleColor = if (isRider) vehicleColor.trim() else "",
                     university = university,
                     studentId = studentId,
                     homeLocation = homeLocation,
@@ -137,14 +149,24 @@ class UserRepository {
         email: String,
         phone: String,
         role: UserRole,
+        vehicleType: String = "",
+        vehicleModel: String = "",
+        vehicleNumber: String = "",
+        vehicleColor: String = "",
         onResult: (Result<User>) -> Unit
     ) {
+        val isRider = role == UserRole.RIDER
+
         val user = User(
             uid = uid,
             name = name,
             email = email,
             phone = phone,
             role = role.name.lowercase(),
+            vehicleType = if (isRider) VehicleType.normalize(vehicleType) else "",
+            vehicleModel = if (isRider) vehicleModel.trim() else "",
+            vehicleNumber = if (isRider) vehicleNumber.trim() else "",
+            vehicleColor = if (isRider) vehicleColor.trim() else "",
             xp = 0L
         )
 
@@ -191,38 +213,12 @@ class UserRepository {
             }
     }
 
-    fun addXpToUser(
-        userId: String,
-        amount: Long,
-        onResult: (Result<Unit>) -> Unit
-    ) {
-        val userRef = db.collection("users").document(userId)
-
-        db.runTransaction { transaction ->
-            val snapshot = transaction.get(userRef)
-            val currentXp = snapshot.getLong("xp") ?: 0L
-            val newXp = currentXp + amount
-            transaction.update(userRef, "xp", newXp)
-        }.addOnSuccessListener {
-            onResult(Result.success(Unit))
-        }.addOnFailureListener { e ->
-            onResult(Result.failure(e))
-        }
-    }
-
-    fun addXpToCurrentUser(
-        amount: Long,
-        onResult: (Result<Unit>) -> Unit
-    ) {
-        val uid = auth.currentUser?.uid
-
-        if (uid == null) {
-            onResult(Result.failure(Exception("No logged in user")))
-            return
-        }
-
-        addXpToUser(uid, amount, onResult)
-    }
+    // addXpToUser/addXpToCurrentUser are deliberately gone. They wrote
+    // users/{uid}.xp directly, which firestore.rules permitted with no
+    // constraint on the value at all - so the same door they went through
+    // let anyone set their own XP to any number from any Firestore client,
+    // and no amount of app-side care could close it. XP now lives in the
+    // append-only xp_events ledger; see XpRepository.
 
     fun logout() {
         auth.signOut()
