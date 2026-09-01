@@ -1,5 +1,6 @@
 package com.example.chologo.ui.common
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,41 +20,64 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.TwoWheeler
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.chologo.data.model.RideHistory
+import com.example.chologo.data.model.RideRequest
+import com.example.chologo.data.model.answerFor
 import com.example.chologo.viewmodel.RideNowViewModel
+import com.example.chologo.viewmodel.TomorrowRideViewModel
 
 @Composable
 fun RideHistoryScreen(
     userId: String,
     source: String,
     viewModel: RideNowViewModel,
+    tomorrowRideViewModel: TomorrowRideViewModel,
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val tomorrowState by tomorrowRideViewModel.uiState.collectAsStateWithLifecycle()
+
+    val isRider = source != "passenger"
+
+    // Legs that were matched but never driven to an end, and whose
+    // departure is long past. These belong here rather than in the
+    // Tomorrow tab: they are trips that already happened.
+    val missedLegs = tomorrowState.missedLegs()
+
+    var ratingTarget by remember { mutableStateOf<RideRequest?>(null) }
 
     LaunchedEffect(userId, source) {
         if (source == "passenger") {
@@ -60,6 +85,8 @@ fun RideHistoryScreen(
         } else {
             viewModel.listenRiderRideHistory(userId)
         }
+
+        tomorrowRideViewModel.startMissedRideReview(userId, isRider)
     }
 
     val bgDark = Color(0xFF0B0F14)
@@ -100,6 +127,39 @@ fun RideHistoryScreen(
                     )
                 }
 
+                items(missedLegs, key = { it.requestId }) { request ->
+                    MissedRideReviewCard(
+                        request = request,
+                        isRider = isRider,
+                        isProcessing = tomorrowState.processingRequestIds
+                            .contains(request.requestId),
+                        cardDark = cardDark,
+                        green = green,
+                        softText = softText,
+                        onAnswer = { didHappen ->
+                            tomorrowRideViewModel.answerMissedRide(
+                                request = request,
+                                userId = userId,
+                                isRider = isRider,
+                                didHappen = didHappen
+                            )
+
+                            // Ask for the rating here and now. Answering
+                            // "yes" can settle the leg outright when the
+                            // other side has already answered, and a
+                            // settled leg drops off this list - so a
+                            // rate-it-later button would never get its
+                            // chance.
+                            val canRate = !isRider &&
+                                    didHappen &&
+                                    !request.riderRated &&
+                                    !request.issueReported
+
+                            if (canRate) ratingTarget = request
+                        }
+                    )
+                }
+
                 if (uiState.rideHistory.isEmpty()) {
                     item {
                         EmptyRideHistoryCard(
@@ -121,6 +181,23 @@ fun RideHistoryScreen(
                 }
             }
         }
+    }
+
+    ratingTarget?.let { target ->
+        RatingDialog(
+            onDismiss = { ratingTarget = null },
+            onSubmit = { stars, comment ->
+                tomorrowRideViewModel.submitTomorrowRating(
+                    request = target,
+                    ratedBy = userId,
+                    ratedTo = target.matchedRiderId,
+                    stars = stars,
+                    comment = comment
+                )
+
+                ratingTarget = null
+            }
+        )
     }
 }
 
@@ -467,5 +544,197 @@ private fun RideHistoryInfoRow(
                 fontWeight = FontWeight.SemiBold
             )
         }
+    }
+}
+
+/**
+ * The "did this ride happen?" review, for a matched leg whose departure
+ * came and went without either side driving the trip to an end.
+ *
+ * It lives in Ride History rather than the Tomorrow tab because that is
+ * what it is about: a trip that already happened. Asking about it in the
+ * tab for planning the *next* one meant opening that tab to plan tomorrow
+ * and being met by a question about a ride finished days ago, with the
+ * planning form pushed below it.
+ *
+ * Both sides answer the same question independently and neither decides
+ * the outcome alone: matching answers close the leg as completed (worth XP
+ * to both) or as never-happened, and conflicting answers close it as not
+ * verified, which counts for neither of them.
+ */
+@Composable
+private fun MissedRideReviewCard(
+    request: RideRequest,
+    isRider: Boolean,
+    isProcessing: Boolean,
+    cardDark: Color,
+    green: Color,
+    softText: Color,
+    onAnswer: (didHappen: Boolean) -> Unit
+) {
+    val amber = Color(0xFFFBBF24)
+
+    val ownAnswer = request.answerFor(isRider)
+    val hasAnswered = ownAnswer.isNotBlank()
+
+    val otherName = if (isRider) {
+        request.passengerName.ifBlank { "your passenger" }
+    } else {
+        request.matchedRiderName.ifBlank { "your rider" }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = cardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(amber.copy(alpha = 0.16f))
+                        .padding(10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.HelpOutline,
+                        contentDescription = null,
+                        tint = amber
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Did this ride happen?",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text(
+                        text = "Never marked as finished in the app",
+                        color = softText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            MissedRideDetailRow(
+                icon = Icons.Default.LocationOn,
+                text = "${request.pickup} → ${request.destination}",
+                softText = softText
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            MissedRideDetailRow(
+                icon = Icons.Default.Schedule,
+                text = "${request.rideDate} · ${request.tripTime}",
+                softText = softText
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            MissedRideDetailRow(
+                icon = Icons.Default.Person,
+                text = otherName,
+                softText = softText
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when {
+                isProcessing -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = green,
+                        strokeWidth = 2.dp
+                    )
+                }
+
+                hasAnswered -> {
+                    Text(
+                        text = "You said this ride " +
+                                (if (ownAnswer == "yes") "happened" else "didn't happen") +
+                                ". Waiting for $otherName to confirm - it only counts " +
+                                "once you both say the same thing.",
+                        color = softText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                else -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = { onAnswer(true) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = green,
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Text("Yes, we rode", fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { onAnswer(false) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("No, it didn't")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "$otherName is asked the same question. If your answers " +
+                                "disagree the trip is marked not verified, and counts " +
+                                "for neither of you.",
+                        color = Color(0xFF5B6B78),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MissedRideDetailRow(
+    icon: ImageVector,
+    text: String,
+    softText: Color
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = softText,
+            modifier = Modifier.size(16.dp)
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Text(
+            text = text,
+            color = softText,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }

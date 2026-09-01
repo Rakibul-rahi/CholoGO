@@ -61,6 +61,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
+import com.example.chologo.data.model.riderMayForceClose
+import com.google.firebase.Timestamp
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
@@ -155,7 +157,15 @@ fun RiderRideNowScreen(
                 pickup = selectedPickup,
                 destination = selectedDestination
             ),
-            availableSeats = 1
+            // Ride Now matches one passenger at a time - the whole flow is
+            // built around a single currentRequestId on the live ride - so a
+            // car offers one seat here just like a bike. The vehicle details
+            // still travel with it so the passenger knows what to look for.
+            availableSeats = 1,
+            vehicleType = authState.userVehicleType,
+            vehicleModel = authState.userVehicleModel,
+            vehicleNumber = authState.userVehicleNumber,
+            vehicleColor = authState.userVehicleColor
         )
     }
 
@@ -255,6 +265,12 @@ fun RiderRideNowScreen(
                 },
                 onCallPassenger = {
                     openDialer(context, passengerRequest?.passengerPhone.orEmpty())
+                },
+                onCancelUnstartedTrip = {
+                    rideNowViewModel.riderCancelUnstartedTrip(authState.userId)
+                },
+                onCloseUnconfirmedTrip = {
+                    rideNowViewModel.riderCloseUnconfirmedTrip(authState.userId)
                 }
             )
         }
@@ -287,7 +303,9 @@ private fun RiderRideNowMainContent(
     onStartTrip: () -> Unit,
     onCompleteTrip: () -> Unit,
     onCancelRide: () -> Unit,
-    onCallPassenger: () -> Unit
+    onCallPassenger: () -> Unit,
+    onCancelUnstartedTrip: () -> Unit,
+    onCloseUnconfirmedTrip: () -> Unit
 ) {
     val hasActiveRequest =
         uiState.riderLiveRide?.currentRequestId?.isNotBlank() == true
@@ -322,7 +340,9 @@ private fun RiderRideNowMainContent(
             onStartTrip = onStartTrip,
             onCompleteTrip = onCompleteTrip,
             onCancelRide = onCancelRide,
-            onCallPassenger = onCallPassenger
+            onCallPassenger = onCallPassenger,
+            onCancelUnstartedTrip = onCancelUnstartedTrip,
+            onCloseUnconfirmedTrip = onCloseUnconfirmedTrip
         )
 
         RiderPassengerRequestList(
@@ -439,7 +459,9 @@ private fun RiderActiveTripSection(
     onStartTrip: () -> Unit,
     onCompleteTrip: () -> Unit,
     onCancelRide: () -> Unit,
-    onCallPassenger: () -> Unit
+    onCallPassenger: () -> Unit,
+    onCancelUnstartedTrip: () -> Unit,
+    onCloseUnconfirmedTrip: () -> Unit
 ) {
     if (!hasActiveRequest || request == null) {
         RideNowInfoBanner(
@@ -463,6 +485,17 @@ private fun RiderActiveTripSection(
                     onCancelRide = onCancelRide,
                     onCall = onCallPassenger
                 )
+
+                // A passenger who never turns up at the pickup pins the
+                // rider here just as firmly as one who stops confirming
+                // later on - Stop Live refuses while any matched trip is
+                // open, whatever stage it's at.
+                RiderUnresponsivePassengerActions(
+                    request = request,
+                    isProcessing = isProcessing,
+                    onCancelUnstarted = onCancelUnstartedTrip,
+                    onCloseUnconfirmed = onCloseUnconfirmedTrip
+                )
             }
 
             RideNowStatus.START_PENDING_CONFIRMATION -> {
@@ -471,6 +504,18 @@ private fun RiderActiveTripSection(
                     message = "You pressed Started. The passenger must confirm that the ride has actually started.",
                     status = request.status,
                     isRider = true
+                )
+
+                // Nothing else in this state moves the trip forward -
+                // riderRequestRideNowCompletion only accepts an ONGOING
+                // trip, and Stop Live refuses outright while a matched one
+                // is open - so a passenger who stops responding here strands
+                // the rider completely.
+                RiderUnresponsivePassengerActions(
+                    request = request,
+                    isProcessing = isProcessing,
+                    onCancelUnstarted = onCancelUnstartedTrip,
+                    onCloseUnconfirmed = onCloseUnconfirmedTrip
                 )
             }
 
@@ -482,6 +527,17 @@ private fun RiderActiveTripSection(
                     onCompleteTrip = onCompleteTrip,
                     onCall = onCallPassenger
                 )
+
+                // Only reachable if the passenger confirmed the start and
+                // then went quiet - Trip Completed still works, but it
+                // only moves this to end_pending_confirmation, which needs
+                // them again. This is the way past that.
+                RiderUnresponsivePassengerActions(
+                    request = request,
+                    isProcessing = isProcessing,
+                    onCancelUnstarted = onCancelUnstartedTrip,
+                    onCloseUnconfirmed = onCloseUnconfirmedTrip
+                )
             }
 
             RideNowStatus.END_PENDING_CONFIRMATION -> {
@@ -490,6 +546,13 @@ private fun RiderActiveTripSection(
                     message = "You pressed Ride Completed. The passenger must confirm safe arrival before the trip becomes completed.",
                     status = request.status,
                     isRider = true
+                )
+
+                RiderUnresponsivePassengerActions(
+                    request = request,
+                    isProcessing = isProcessing,
+                    onCancelUnstarted = onCancelUnstartedTrip,
+                    onCloseUnconfirmed = onCloseUnconfirmedTrip
                 )
             }
 
@@ -536,6 +599,67 @@ private fun RiderActiveTripSection(
                 )
             }
         }
+    }
+}
+
+/**
+ * The way out when a passenger simply stops responding mid-trip.
+ *
+ * Deliberately hidden until RideNowRequest.riderMayForceClose() is true -
+ * a few minutes of silence is a passenger fishing their phone out of a
+ * bag, not an abandoned trip, and this must never become the quick way to
+ * dump a passenger. Which button appears depends on how far the trip got,
+ * because the two cases deserve very different records:
+ *
+ *  - never started: the passenger never got on, so the trip is simply
+ *    CANCELLED and neither side is credited with anything.
+ *  - already under way: the rider really did drive it, but only they ever
+ *    said so, so it closes as UNVERIFIED - no history entry, no rating.
+ *    Not a completed trip, just an honest end to one.
+ *
+ * Either way the rider's LiveRide is released, which is the part that
+ * actually unsticks them.
+ */
+@Composable
+private fun RiderUnresponsivePassengerActions(
+    request: RideNowRequest,
+    isProcessing: Boolean,
+    onCancelUnstarted: () -> Unit,
+    onCloseUnconfirmed: () -> Unit
+) {
+    // Recomputed on each recomposition rather than remembered: the answer
+    // is a function of the clock, and the surrounding screen recomposes on
+    // every snapshot of this request anyway.
+    if (!request.riderMayForceClose(Timestamp.now().seconds)) {
+        RideNowInfoBanner(
+            message = "If the passenger doesn't respond, you'll be able to close " +
+                    "this trip yourself in a few minutes."
+        )
+        return
+    }
+
+    val hasStarted = request.status == RideNowStatus.ONGOING ||
+            request.status == RideNowStatus.END_PENDING_CONFIRMATION
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        RideNowInfoBanner(
+            message = if (hasStarted) {
+                "The passenger hasn't confirmed this trip. You can close it " +
+                        "yourself - it will be recorded as unverified, so it " +
+                        "won't count as a completed ride for either of you."
+            } else {
+                "The passenger hasn't responded. You can cancel this trip and " +
+                        "go live again."
+            }
+        )
+
+        RiderLimeActionButton(
+            text = if (hasStarted) "Close as unverified" else "Passenger didn't show",
+            isLoading = isProcessing,
+            enabled = !isProcessing,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = if (hasStarted) onCloseUnconfirmed else onCancelUnstarted
+        )
     }
 }
 

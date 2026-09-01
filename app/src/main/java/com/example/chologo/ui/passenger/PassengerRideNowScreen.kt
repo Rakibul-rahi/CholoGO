@@ -98,6 +98,7 @@ fun PassengerRideNowScreen(
             null,
             RideNowStatus.CANCELLED,
             RideNowStatus.EXPIRED,
+            RideNowStatus.UNVERIFIED,
             RideNowStatus.ISSUE_REPORTED -> resetDepartureTimeToNow()
             else -> Unit
         }
@@ -126,9 +127,16 @@ fun PassengerRideNowScreen(
         authViewModel.loadCurrentUser()
     }
 
+    // startPassengerRideNowSession, not listenPassengerActiveRide: it
+    // closes out abandoned trips *before* attaching the listener. Without
+    // that sweep, a trip nobody ever finished (the rider drove off, the
+    // passenger never confirmed arrival) is handed straight back by the
+    // listener - which has no age bound - and pins this screen on its
+    // lifecycle card forever, with no way to cancel it and no way to
+    // request a new ride.
     LaunchedEffect(authState.userId) {
         if (authState.userId.isNotBlank()) {
-            rideNowViewModel.listenPassengerActiveRide(
+            rideNowViewModel.startPassengerRideNowSession(
                 passengerId = authState.userId
             )
         }
@@ -268,12 +276,13 @@ fun PassengerRideNowScreen(
                         onCallRider = {
                             openDialer(context, passengerRequest.matchedRiderPhone)
                         },
+                        // A real cancel, not a refusal toast. This is the
+                        // passenger's only way out of a matched trip, and
+                        // cancelRideNowRequest routes an accepted one
+                        // through cancelAcceptedRideNowTrip so the rider's
+                        // LiveRide is released along with it.
                         onCancelRide = {
-                            Toast.makeText(
-                                context,
-                                "Accepted ride cannot be cancelled from here.",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            rideNowViewModel.cancelRideNowRequest()
                         }
                     )
                 }

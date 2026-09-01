@@ -69,11 +69,11 @@ import com.example.chologo.data.model.RideRequestStatus
 import com.example.chologo.notifications.NotifiedEventsStore
 import com.example.chologo.notifications.ReminderNotifications
 import com.example.chologo.notifications.TomorrowRideReminderScheduler
-import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.common.RatingDialog
 import com.example.chologo.ui.common.ReportDialog
 import com.example.chologo.ui.common.rememberNotificationPermissionRequester
 import com.example.chologo.viewmodel.AuthViewModel
+import com.example.chologo.data.model.VehicleType
 import com.example.chologo.viewmodel.TomorrowMatchedRide
 import com.example.chologo.viewmodel.TomorrowRideViewModel
 import com.google.firebase.auth.FirebaseAuth
@@ -103,15 +103,23 @@ private fun TomorrowMatchedRide.toRideCardUi(): RideCardUi {
         destination = destination,
         departureTime = tripTime,
         seatsLeft = availableSeats,
-        phone = ""
+        phone = "",
+        // Contact stays hidden until this rider actually accepts, but the
+        // vehicle is fair game up front - it's how a passenger decides
+        // whether the ride suits them.
+        vehicleLabel = VehicleType.detailsSummary(
+            vehicleType,
+            vehicleModel,
+            vehicleNumber,
+            vehicleColor
+        ) ?: VehicleType.label(vehicleType),
+        isCar = VehicleType.isCar(vehicleType)
     )
 }
 
 @Composable
 fun PassengerTomorrowTab(
     authViewModel: AuthViewModel,
-    userRepository: UserRepository,
-    onXpUpdated: (Long) -> Unit,
     onRequireLogin: () -> Unit = {},
     tomorrowRideViewModel: TomorrowRideViewModel = viewModel()
 ) {
@@ -179,12 +187,6 @@ fun PassengerTomorrowTab(
     // still-open "pending" request once resubmitted.
     val riderCancelledLegs = uiState.savedRequests.filter {
         it.status == "cancelled" && it.cancelledByRole == "rider"
-    }
-
-    fun refreshPassengerXp() {
-        userRepository.getCurrentUserData { result ->
-            result.onSuccess { user -> onXpUpdated(user.xp) }
-        }
     }
 
     LaunchedEffect(authState.userId) {
@@ -306,7 +308,6 @@ fun PassengerTomorrowTab(
         uiState.successMessage?.let { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             tomorrowRideViewModel.clearMessage()
-            refreshPassengerXp()
             isEditing = false
         }
     }
@@ -326,6 +327,12 @@ fun PassengerTomorrowTab(
             }
         }
 
+        // This tab is for planning the NEXT trip and nothing else. The
+        // "did this ride happen?" review for a leg that was never marked
+        // finished lives in Ride History now - a trip that already
+        // happened is history, and prompting about it here buried the
+        // planning form under a question about something the user
+        // considered done days ago.
         when {
             !hasLoadedOnce -> {
                 PremiumLoadingCard("Loading tomorrow requests...")

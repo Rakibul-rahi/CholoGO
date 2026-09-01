@@ -7,6 +7,7 @@
 - [Objectives](#-objectives)
 - [Target Audience](#-target-audience)
 - [Firebase Collections & Services](#-firebase-collections--services)
+- [Backend Server (Render)](#-backend-server-render)
 - [Milestones](#-milestones)
 - [Technologies Used](#-technologies-used)
 - [Installation](#-installation)
@@ -21,7 +22,7 @@
 
 The project initially focuses on **Ahsanullah University of Science and Technology (AUST)** students. Riders are student bikers, and passengers are students looking for rides to campus or from campus to home. CholoGO provides both **Ride Now** and **Tomorrow Ride** features to support instant and scheduled ride matching.
 
-The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**. Firebase Authentication is used for user login and signup, while Cloud Firestore is used to store users, rides, ride requests, live rides, ratings, and reports.
+The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**. Firebase Authentication (email/password and Google Sign-In) handles login and signup, Cloud Firestore stores users, rides, ride requests, live rides, ratings, and reports, and a small standalone **Node.js/Express server hosted on Render** handles the few operations that need administrative privileges beyond what client-side Firestore rules can safely allow — cancelling a matched ride across two users' documents, and sending push notifications through Firebase Cloud Messaging.
 
 ---
 
@@ -30,7 +31,9 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 ### i. User Authentication and Role Selection
 
 - User registration and login using Firebase Authentication.
+- **Sign in with Google** via the Credential Manager API, alongside email/password.
 - Forgot password option.
+- First-time Google sign-in collects role and phone number through a dedicated profile-completion step, since Google doesn't provide either.
 - Role selection after authentication:
   - Passenger
   - Rider
@@ -44,12 +47,12 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 - Request instant Ride Now rides.
 - Search for matching live riders.
 - Request scheduled rides for tomorrow.
-- View accepted ride information.
+- View accepted ride information, including the matched rider's phone number.
 - Call matched rider directly.
-- Confirm ride start.
-- Confirm ride completion.
-- Rate rider after completed ride.
-- Report issue if a problem occurs.
+- Confirm ride start and ride completion — for both Ride Now and Tomorrow Ride.
+- Rate rider or report an issue after a completed ride — for both Ride Now and Tomorrow Ride.
+- **Push notification** when a rider accepts a Tomorrow ride request.
+- Notified if a rider cancels an already-accepted Tomorrow ride, with a one-tap way to resubmit the request.
 
 ### iii. Rider Features
 
@@ -57,12 +60,13 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 - Go live for instant ride requests.
 - Select pickup and destination.
 - Set ride time and available seats.
-- View incoming passenger requests.
+- View incoming passenger requests, including the passenger's phone number once matched.
 - Accept or decline ride requests.
-- Confirm ride start.
-- Complete ride after passenger confirmation.
+- Start and complete the trip with passenger confirmation at each step — for both Ride Now and Tomorrow Ride.
+- Automatically goes offline after completing or cancelling a Ride Now trip — must tap "Go Live" again to receive new requests.
 - Earn XP after accepting scheduled rides.
 - View rider level and progress.
+- **Push notification** the moment a passenger's request matches an already-saved Tomorrow ride.
 
 ### iv. Ride Now System
 
@@ -100,8 +104,17 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
   - Time range
   - Seat availability
 - Rider can accept or decline requests.
-- Passenger can see matched rider details.
-- Direct call option is available after matching.
+- Passenger can see matched rider details, including phone number.
+- Direct call option is available after matching, in both directions.
+- Full trip lifecycle, mirroring Ride Now:
+  - PENDING
+  - ACCEPTED
+  - START_PENDING_CONFIRMATION
+  - ONGOING
+  - END_PENDING_CONFIRMATION
+  - COMPLETED
+  - CANCELLED
+- A cancelled request can be resubmitted by the passenger, returning it to PENDING so other riders can match it again.
 - Rider earns XP after accepting a tomorrow ride request.
 
 ### vi. Closed Community System
@@ -118,10 +131,9 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 
 ### vii. Rating and Report System
 
-- Passengers can rate riders after a completed ride.
-- Rating affects rider profile statistics.
-- Users can report issues.
-- Report count is stored for moderation.
+- Passengers can rate riders after a completed ride — for both Ride Now and Tomorrow Ride.
+- Rating affects rider profile statistics (average rating, rating count).
+- Users can report issues; report count is stored on the rider's profile for moderation.
 - Buttons are disabled after rating or reporting to prevent duplicate submissions.
 
 ### viii. Ride History
@@ -140,7 +152,15 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
   - Rider title
 - Encourages active participation from student riders.
 
-### x. Responsive Mobile UI
+### x. Push Notifications & Real-Time Alerts
+
+- **Firebase Cloud Messaging (FCM)** delivers server-pushed notifications that reach a device even when the app is backgrounded or fully closed.
+- Passenger is notified the moment a rider accepts their Tomorrow ride request.
+- Rider is notified the moment a passenger's request matches an already-saved Tomorrow ride.
+- On-device reminder one hour before a confirmed Tomorrow ride, asking whether it's still happening.
+- Local notification if a rider cancels an already-accepted Tomorrow ride.
+
+### xi. Responsive Mobile UI
 
 - Built with Jetpack Compose.
 - Separate screens for Passenger and Rider flows.
@@ -158,6 +178,7 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 - **Ensure Community Trust:** Use a closed-community model to improve safety and reliability.
 - **Support Real-Time and Scheduled Rides:** Provide both instant Ride Now and Tomorrow Ride options.
 - **Encourage Rider Participation:** Use XP and level systems to motivate student riders.
+- **Keep Users Informed in Real Time:** Use push notifications so passengers and riders never have to keep the app open to know what's happening with their ride.
 - **Build a Scalable MVP:** Create a system that can later expand to other universities.
 
 ---
@@ -174,7 +195,7 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 
 ## 📜 Firebase Collections & Services
 
-> CholoGO uses Firebase services instead of a traditional REST API backend.
+> CholoGO uses Firebase for authentication, data, and rules, plus one small standalone server (see [Backend Server (Render)](#-backend-server-render)) for the handful of operations Firestore rules alone can't safely cover.
 
 ---
 
@@ -182,7 +203,8 @@ The application is built using **Kotlin**, **Jetpack Compose**, and **Firebase**
 
 Firebase Authentication is used for:
 
-- User signup.
+- User signup (email/password).
+- Sign in with Google (Credential Manager API + Firebase `GoogleAuthProvider`).
 - User login.
 - Forgot password.
 - Authenticated user session.
@@ -202,11 +224,16 @@ Firestore collection: `users`
     name: String,
     email: String,
     phone: String,
-    role: String, // Passenger or Rider
+    role: String, // passenger or rider
+    university: String,
+    studentId: String,
+    homeLocation: String,
+    xp: Long,
     ratingAverage: Double,
     ratingCount: Int,
     reportCount: Int,
-    createdAt: Timestamp
+    fcmTokens: List<String>, // device tokens for push notifications
+    createdAt: Long
 }
 ```
 
@@ -249,6 +276,7 @@ Firestore collection: `ride_requests`
     requestId: String,
     userId: String,
     passengerName: String,
+    passengerPhone: String,
     pickup: String,
     destination: String,
     tripDirection: String,
@@ -258,11 +286,31 @@ Firestore collection: `ride_requests`
     timeMinutes: Int,
     routeKey: String,
     rideDate: String,
-    status: String, // pending, accepted, cancelled
+    status: String, // pending, accepted, start_pending_confirmation, ongoing, end_pending_confirmation, completed, cancelled
     matchedRideId: String,
     matchedRiderId: String,
     matchedRiderName: String,
     matchedRiderPhone: String,
+    matchedRideTime: String,
+    acceptedAt: Timestamp,
+    rideStartedByRider: Boolean,
+    rideConfirmedByPassenger: Boolean,
+    rideEndedByRider: Boolean,
+    rideCompletedByPassenger: Boolean,
+    startedAt: Timestamp,
+    completedAt: Timestamp,
+    riderRated: Boolean,
+    rating: Int,
+    ratedAt: Timestamp,
+    issueReported: Boolean,
+    reportReason: String,
+    reportDetails: String,
+    reportedAt: Timestamp,
+    rejectedByRiderIds: List<String>,
+    cancelledBy: String,
+    cancelledByRole: String, // rider or passenger
+    cancellationReason: String,
+    cancelledAt: Timestamp,
     createdAt: Timestamp
 }
 ```
@@ -287,8 +335,10 @@ Firestore collection: `live_rides`
     timeMinutes: Int,
     routeKey: String,
     availableSeats: Int,
-    status: String, // active, full, cancelled
+    status: String, // active, inactive
     isLiveNow: Boolean,
+    isAvailable: Boolean,
+    currentRequestId: String,
     createdAt: Timestamp,
     lastUpdatedAt: Timestamp
 }
@@ -307,25 +357,31 @@ Firestore collection: `ride_now_requests`
     requestId: String,
     passengerId: String,
     passengerName: String,
+    passengerPhone: String,
     pickup: String,
     destination: String,
     tripTime: String,
     timeMinutes: Int,
     routeKey: String,
-    status: String,
+    status: String, // searching, notified, accepted, start_pending_confirmation, ongoing, end_pending_confirmation, completed, cancelled, expired, issue_reported
     matchedRideId: String,
     matchedRiderId: String,
     matchedRiderName: String,
     matchedRiderPhone: String,
     acceptedAt: Timestamp,
-    cancelledAt: Timestamp,
-    createdAt: Timestamp,
-    expiresAt: Timestamp,
     startedAt: Timestamp,
     completedAt: Timestamp,
+    cancelledAt: Timestamp,
     expiredAt: Timestamp,
+    createdAt: Timestamp,
+    expiresAt: Timestamp,
     riderRated: Boolean,
-    issueReported: Boolean
+    rating: Int,
+    ratedAt: Timestamp,
+    issueReported: Boolean,
+    reportReason: String,
+    reportDetails: String,
+    reportedAt: Timestamp
 }
 ```
 
@@ -341,9 +397,13 @@ Firestore collection: `ride_ratings`
 {
     ratingId: String,
     requestId: String,
+    rideId: String,
     passengerId: String,
     riderId: String,
-    rating: Int,
+    ratedBy: String,
+    ratedTo: String,
+    stars: Int, // 1-5
+    comment: String,
     createdAt: Timestamp
 }
 ```
@@ -360,13 +420,61 @@ Firestore collection: `ride_reports`
 {
     reportId: String,
     requestId: String,
-    reporterId: String,
+    rideId: String,
+    passengerId: String,
+    riderId: String,
+    reportedBy: String,
     reportedUserId: String,
-    reportReason: String,
-    reportDetails: String,
+    reason: String,
+    details: String,
+    status: String, // pending
     createdAt: Timestamp
 }
 ```
+
+---
+
+### Firestore Security Rules
+
+All rules live in [`firestore.rules`](firestore.rules) and are version-controlled alongside the app rather than only living in the Firebase console. Instead of one broad rule per collection, every state transition (accept, start, confirm, complete, cancel, rate, report) has its own tightly scoped function that pins the exact prior status, the new status, and the exact set of fields allowed to change — so, for example, a rider can only accept a still-pending request by matching themselves, and can't smuggle unrelated field edits into that same write.
+
+---
+
+## 🌐 Backend Server (Render)
+
+CholoGO is primarily serverless — almost everything goes straight from the app to Firestore under the rules above. A small standalone **Node.js + Express** server, using the **Firebase Admin SDK**, covers the few things a client can't safely be trusted to do on its own:
+
+- Cancelling a passenger's already-accepted request, which needs to update *two* documents the passenger doesn't own outright (their own request, and the matched rider's ride/seat count) in one transaction.
+- Sending **Firebase Cloud Messaging** push notifications, which requires Admin SDK credentials no client should ever hold.
+
+**Hosting:** deployed on [Render](https://render.com)'s free tier, auto-deploying from the `main` branch of this repository.
+
+**Live URL:** https://chologo.onrender.com
+
+> ⚠️ The free tier spins the instance down after 15 minutes of inactivity, so the first request after a period of idleness can take 30–60 seconds to wake it back up. The Android app's HTTP client is configured with generous timeouts to accommodate this.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/tomorrow/cancel-request` | Cancels the caller's own accepted Tomorrow request and restores the matched rider's seat, in one transaction. |
+| `POST` | `/api/tomorrow/notify-accepted` | Called by the accepting rider right after their accept succeeds; pushes the passenger a "request accepted" notification. |
+| `POST` | `/api/tomorrow/notify-match` | Called by a passenger right after submitting a request; finds any rider whose saved ride matches it and pushes them a notification. |
+| `GET` | `/health` | Basic health check. |
+
+All `/api/tomorrow/*` endpoints require a Firebase ID token in the `Authorization: Bearer <token>` header, and independently re-verify on the server that the caller actually owns the relevant side of the request before doing anything — the client can't spoof another user's uid.
+
+### Local development
+
+```bash
+cd server
+npm install
+npm run dev      # ts-node-dev, live reload
+npm run build    # type-check + compile to dist/
+npm start        # run the compiled server
+```
+
+The server needs a `FIREBASE_SERVICE_ACCOUNT` environment variable — the JSON contents of a Firebase service account key for the project, kept out of source control and set directly in Render's environment settings (and your own shell/`.env` for local runs).
 
 ---
 
@@ -439,7 +547,24 @@ Firestore collection: `ride_reports`
 - Display completed ride details.
 - Disable duplicate rating and reporting.
 
-### Milestone 7: Final Touches and Future Deployment
+### Milestone 7: Standalone Server, Phone Sharing, and Ride Now Fixes
+
+- Add the standalone Node.js/Express REST server, deployed on Render.
+- Move passenger-initiated cancellation to the server, restoring the rider's seat synchronously.
+- Share phone numbers between matched passenger and rider, for both Ride Now and Tomorrow Ride.
+- Fix riders not going offline after completing or cancelling a Ride Now trip.
+- Fix a cancelled Tomorrow request being stuck and unable to be resubmitted.
+
+### Milestone 8: Tomorrow Ride Lifecycle, Google Sign-In, and Push Notifications
+
+- Bring the full start/ongoing/completion confirmation flow to Tomorrow Ride, mirroring Ride Now.
+- Add rating and reporting for Tomorrow Ride, reusing the existing rating/report system.
+- Add Google Sign-In, including first-time profile completion (role and phone) for new Google accounts.
+- Add Firebase Cloud Messaging push notifications: rider-accepted (to the passenger) and new-match (to the rider), sent via the standalone server.
+- Rewrite Firestore security rules with per-transition scoped functions instead of broad collection-level rules, and bring `firestore.rules`/`firestore.indexes.json` into version control.
+- Various bug fixes and signup validation improvements.
+
+### Milestone 9: Final Touches and Future Deployment
 
 - Improve UI design.
 - Test passenger and rider flows.
@@ -460,8 +585,12 @@ Firestore collection: `ride_reports`
 | Programming Language | Kotlin |
 | UI Framework | Jetpack Compose |
 | Backend as a Service | Firebase |
-| Authentication | Firebase Authentication |
+| Authentication | Firebase Authentication, Google Sign-In (Credential Manager API) |
 | Database | Cloud Firestore |
+| Push Notifications | Firebase Cloud Messaging (FCM) |
+| Backend Server | Node.js, Express, TypeScript |
+| Server SDK | Firebase Admin SDK |
+| Server Hosting | Render |
 | State Management | ViewModel / StateFlow |
 | Architecture | Repository Pattern |
 | Navigation | Navigation Compose |
@@ -485,6 +614,7 @@ Before running this project, make sure you have installed:
 - Kotlin
 - Firebase project
 - Git
+- Node.js 18+ (only needed if you're running the [backend server](#-backend-server-render) locally)
 
 ## 👷 Team Member
 
@@ -500,6 +630,8 @@ Before running this project, make sure you have installed:
 
 **Live Project Link:** https://appetize.io/app/b_jg6uxuzyfrukxtqt7p5tt2vhui
 
+**Backend API:** https://chologo.onrender.com
+
 **APK Link:** Not added yet
 
 ---
@@ -510,8 +642,6 @@ Before running this project, make sure you have installed:
 - Add student ID card verification.
 - Add map integration.
 - Add live location tracking.
-- Add push notifications.
-- Add reminder system for Tomorrow Ride.
 - Add ad banners and sponsor cards.
 - Add rider wallet or earnings summary.
 - Add admin moderation panel.

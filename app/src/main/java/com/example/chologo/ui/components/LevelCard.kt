@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.util.Calendar
+import com.example.chologo.utils.Greeting
 
 @Composable
 fun LevelCard(
@@ -38,12 +38,7 @@ fun LevelCard(
 
     val safeProgress = if (progress.isNaN()) 0f else progress.coerceIn(0f, 1f)
 
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val greeting = when {
-        hour < 12 -> "GOOD MORNING"
-        hour < 18 -> "GOOD AFTERNOON"
-        else -> "GOOD EVENING"
-    }
+    val greeting = Greeting.forHour().uppercase()
 
     Box(
         modifier = modifier

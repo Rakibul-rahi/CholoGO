@@ -22,6 +22,7 @@ import com.example.chologo.ui.rider.RiderRideNowScreen
 import com.example.chologo.ui.screens.ProfileScreen
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowViewModel
+import com.example.chologo.viewmodel.TomorrowRideViewModel
 import com.google.firebase.auth.FirebaseAuth
 
 @Composable
@@ -31,6 +32,12 @@ fun AppNavGraph(startDestination: String) {
 
     val authViewModel: AuthViewModel = viewModel()
     val rideNowViewModel: RideNowViewModel = viewModel()
+
+    // Shared with the dashboards' own instances only by type - this one
+    // backs the Ride History screen's "did this ride happen?" review,
+    // which needs the missed-leg listener without any of the Tomorrow
+    // tab's date-scoped ones.
+    val tomorrowRideViewModel: TomorrowRideViewModel = viewModel()
 
     val uiState by authViewModel.uiState.collectAsState()
 
@@ -145,7 +152,9 @@ fun AppNavGraph(startDestination: String) {
 
         composable(Screen.Signup.route) {
             SignupScreen(
-                onSignupClick = { role, name, email, phone, studentId, university, homeLocation, password ->
+                onSignupClick = { role, name, email, phone, studentId, university,
+                                  homeLocation, password, vehicleType, vehicleModel,
+                                  vehicleNumber, vehicleColor ->
                     authViewModel.signup(
                         role = role,
                         name = name,
@@ -154,7 +163,11 @@ fun AppNavGraph(startDestination: String) {
                         studentId = studentId,
                         university = university,
                         homeLocation = homeLocation,
-                        password = password
+                        password = password,
+                        vehicleType = vehicleType,
+                        vehicleModel = vehicleModel,
+                        vehicleNumber = vehicleNumber,
+                        vehicleColor = vehicleColor
                     )
                 },
                 onLoginClick = {
@@ -174,8 +187,16 @@ fun AppNavGraph(startDestination: String) {
 
         composable(Screen.RoleSelection.route) {
             RoleSelectionScreen(
-                onCompleteProfile = { role, phone ->
-                    authViewModel.completeGoogleProfile(role, phone)
+                onCompleteProfile = { role, phone, vehicleType, vehicleModel,
+                                      vehicleNumber, vehicleColor ->
+                    authViewModel.completeGoogleProfile(
+                        role = role,
+                        phone = phone,
+                        vehicleType = vehicleType,
+                        vehicleModel = vehicleModel,
+                        vehicleNumber = vehicleNumber,
+                        vehicleColor = vehicleColor
+                    )
                 },
                 isLoading = uiState.isLoading,
                 externalErrorMessage = uiState.errorMessage
@@ -209,6 +230,7 @@ fun AppNavGraph(startDestination: String) {
                 userId = currentUserId,
                 source = source,
                 viewModel = rideNowViewModel,
+                tomorrowRideViewModel = tomorrowRideViewModel,
                 onBackClick = {
                     navController.popBackStack()
                 }

@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.chologo.navigation.Screen
 import com.example.chologo.ui.components.LevelCard
+import com.example.chologo.utils.Greeting
 import com.example.chologo.utils.LevelInfo
 import com.google.firebase.Timestamp
 import java.text.SimpleDateFormat
@@ -239,12 +240,7 @@ fun RiderHeroCard(
     levelInfo: LevelInfo,
     isLevelLoading: Boolean
 ) {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val greeting = when {
-        hour < 12 -> "Good Morning"
-        hour < 18 -> "Good Afternoon"
-        else -> "Good Evening"
-    }
+    val greeting = Greeting.forHour()
 
     Card(
         modifier = Modifier.fillMaxWidth(),

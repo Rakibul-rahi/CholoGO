@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.RideNowRequest
+import com.example.chologo.data.model.XpRules
 
 @Composable
 fun RideCompletedCard(
@@ -145,28 +146,20 @@ fun RideCompletedCard(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // Both of these used to be fiction: a hardcoded
+                    // "5.2 km" that was never measured, and a flat
+                    // "+10 XP" for a completion that awarded nothing at
+                    // all. The XP is real now, and this reads it from the
+                    // same table the security rules enforce, so the card
+                    // can't drift away from what was actually banked.
                     RideCompletedInfoRow(
-                        label = if (isRider) {
-                            "Earned"
-                        } else {
-                            "Fare"
-                        },
-                        value = "${getCompletedRideFare(request)} Tk"
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    RideCompletedInfoRow(
-                        label = if (isRider) {
-                            "Distance"
-                        } else {
-                            "XP Earned"
-                        },
-                        value = if (isRider) {
-                            "5.2 km"
-                        } else {
-                            "+10 XP"
-                        }
+                        label = "XP Earned",
+                        value = "+${
+                            XpRules.amountFor(
+                                XpRules.REASON_RIDE_NOW_TRIP,
+                                if (isRider) XpRules.ROLE_RIDER else XpRules.ROLE_PASSENGER
+                            )
+                        } XP"
                     )
                 }
 
@@ -249,22 +242,5 @@ private fun RideCompletedInfoRow(
             fontSize = 12.sp,
             textAlign = TextAlign.End
         )
-    }
-}
-
-private fun getCompletedRideFare(
-    request: RideNowRequest
-): Int {
-
-    return when {
-
-        request.pickup.equals("AUST Gate", ignoreCase = true) ||
-                request.destination.equals("AUST Gate", ignoreCase = true) -> {
-            40
-        }
-
-        else -> {
-            50
-        }
     }
 }

@@ -36,13 +36,29 @@ service cloud.firestore {
       // The owner may edit their own profile fields, but never the fields
       // that are supposed to be earned/assigned by others - role (which
       // every isPassenger()/isRider() check in this file trusts blindly),
-      // and the rating/report counters below. xp is included because it's
-      // always written to the caller's own doc by UserRepository.addXpToUser
-      // - there's no cross-user XP write path today.
+      // and the rating/report counters below.
+      //
+      // "xp" used to be on this list, which meant any signed-in user could
+      // set their own XP to any number they liked straight from a
+      // Firestore client - no ride, no app, nothing to stop them. It is
+      // gone for good, and nothing may write it again: XP is now the sum
+      // of a user's rows in xp_events, an append-only ledger where every
+      // row has to justify itself. See the notes there for why a counter
+      // cannot be secured with rules at all.
+      //
+      // The field may still exist on older user documents. It is dead
+      // data - never read, never written.
       function ownerProfileEdit() {
         return isOwner(userId)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["name", "phone", "email", "university", "studentId", "homeLocation", "xp", "fcmTokens"]);
+            .hasOnly([
+              "name", "phone", "email", "university", "studentId", "homeLocation",
+              "fcmTokens",
+              // A rider may switch between a bike and a car, and correct
+              // their car's details, from their own profile. role stays
+              // excluded above - swapping vehicles is not swapping roles.
+              "vehicleType", "vehicleModel", "vehicleNumber", "vehicleColor"
+            ]);
       }
 
       // Backs RideNowFeedbackRepository.submitRideRating(): a rating from
@@ -204,6 +220,74 @@ service cloud.firestore {
             .hasOnly(["status", "rideCompletedByPassenger", "completedAt"]);
       }
 
+      // ---------- Missed-trip reconciliation ----------
+      // A leg whose departure passed with the lifecycle never finished is
+      // reconstructed after the fact: each side answers "did this ride
+      // happen?" exactly once, and the SECOND answer also closes the leg.
+      //
+      // The closing status is not the answerer's to choose. These rules
+      // re-derive it from both answers, the same way
+      // RideRequest.resolvedStatusAfter() does client-side, so no client
+      // can talk its way to a "completed" trip the other side never
+      // vouched for:
+      //   first answer in  -> status must not move at all
+      //   answers agree    -> "completed" (yes) / "not_completed" (no)
+      //   answers disagree -> "unverified", which counts for neither side
+
+      function retroUnfinished() {
+        return resource.data.status in [
+          "accepted", "start_pending_confirmation", "ongoing", "end_pending_confirmation"
+        ];
+      }
+
+      // [ownAnswer] is this side's new answer, [otherAnswer] the answer
+      // already stored for the other side ("" while they haven't answered).
+      function retroStatusIsDerived(ownAnswer, otherAnswer) {
+        let newStatus = request.resource.data.status;
+
+        return (otherAnswer == "" && newStatus == resource.data.status)
+          || (otherAnswer == ownAnswer && ownAnswer == "yes" && newStatus == "completed")
+          || (otherAnswer == ownAnswer && ownAnswer == "no" && newStatus == "not_completed")
+          || (otherAnswer != "" && otherAnswer != ownAnswer && newStatus == "unverified");
+      }
+
+      // submitMissedRideAnswer(), passenger side. One-shot: the old answer
+      // must be empty, and the rider's answer may not be touched.
+      function passengerRetroAnswer() {
+        let ownAnswer = request.resource.data.passengerHappenedAnswer;
+
+        return isPassenger()
+          && resource.data.userId == myUid()
+          && retroUnfinished()
+          && resource.data.get('passengerHappenedAnswer', '') == ''
+          && ownAnswer in ["yes", "no"]
+          && request.resource.data.get('riderHappenedAnswer', '') == resource.data.get('riderHappenedAnswer', '')
+          && retroStatusIsDerived(ownAnswer, resource.data.get('riderHappenedAnswer', ''))
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "passengerHappenedAnswer", "passengerAnsweredAt", "completedAt"]);
+      }
+
+      // submitMissedRideAnswer(), rider side.
+      function riderRetroAnswer() {
+        let ownAnswer = request.resource.data.riderHappenedAnswer;
+
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && retroUnfinished()
+          && resource.data.get('riderHappenedAnswer', '') == ''
+          && ownAnswer in ["yes", "no"]
+          && request.resource.data.get('passengerHappenedAnswer', '') == resource.data.get('passengerHappenedAnswer', '')
+          && retroStatusIsDerived(ownAnswer, resource.data.get('passengerHappenedAnswer', ''))
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "riderHappenedAnswer", "riderAnsweredAt", "completedAt"]);
+      }
+
+      // (There is deliberately no XP-claim branch here. A reconciled leg
+      // pays out through the xp_events ledger like any other completed
+      // trip - the ledger's derived document IDs already give one-shot
+      // semantics, and better ones, since they also stop the normal and
+      // reconstructed completion paths both paying for the same leg.)
+
       // TomorrowFeedbackRepository.submitRideRating(): only the owning
       // passenger, one star rating, one time.
       function passengerSubmitRating() {
@@ -255,6 +339,8 @@ service cloud.firestore {
         || passengerRejectStart()
         || riderRequestCompletion()
         || passengerConfirmCompletion()
+        || passengerRetroAnswer()
+        || riderRetroAnswer()
         || passengerSubmitRating()
         || passengerSubmitReport();
 
@@ -391,7 +477,11 @@ service cloud.firestore {
               "status", "matchedRideId", "matchedRiderId", "matchedRiderName",
               "matchedRiderPhone", "acceptedAt", "rideStartedByRider",
               "rideConfirmedByPassenger", "rideEndedByRider",
-              "rideCompletedByPassenger", "startedAt", "completedAt"
+              "rideCompletedByPassenger", "startedAt", "completedAt",
+              // Vehicle snapshot copied off the matched live ride, so the
+              // passenger can see which bike/car is coming.
+              "matchedVehicleType", "matchedVehicleModel",
+              "matchedVehicleNumber", "matchedVehicleColor"
             ]);
       }
 
@@ -445,6 +535,37 @@ service cloud.firestore {
             .hasOnly(["status", "rideCompletedByPassenger", "completedAt"]);
       }
 
+      // ---------- Rider abandonment escape hatches ----------
+      // Nothing in the normal lifecycle lets a rider move a trip forward
+      // once the passenger stops responding: start only accepts
+      // "accepted", completion only accepts "ongoing", and the passenger
+      // is the only one who can confirm either. These two transitions are
+      // the rider's way out, and both take their own LiveRide offline in
+      // the same transaction (covered by the live_rides owner rule).
+
+      // riderCancelUnstartedTrip(): the passenger never got on.
+      function riderCancelUnstarted() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.status in ["accepted", "start_pending_confirmation"]
+          && request.resource.data.status == "cancelled"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "cancelledAt", "closedByRole", "closedAt"]);
+      }
+
+      // riderCloseUnconfirmedTrip(): the trip was really driven, but only
+      // the rider ever said so. "unverified", never "completed" - one
+      // side's word alone must not be able to mint a completed trip (and
+      // with it a ride_history entry) for the other.
+      function riderCloseUnconfirmed() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.status in ["ongoing", "end_pending_confirmation"]
+          && request.resource.data.status == "unverified"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "closedByRole", "closedAt"]);
+      }
+
       // passengerReportRideNowIssue(): only the owning passenger, and only
       // on a trip that isn't already finished.
       function passengerReportIssue() {
@@ -490,6 +611,8 @@ service cloud.firestore {
 
       allow update: if passengerCancelSearching()
         || passengerCancelAccepted()
+        || riderCancelUnstarted()
+        || riderCloseUnconfirmed()
         || expireSearching()
         || riderAccept()
         || riderStart()
@@ -521,6 +644,142 @@ service cloud.firestore {
           || resource.data.riderId == myUid()
         );
 
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---------- XP ledger ----------
+    // XP is a ledger, not a counter, and that is the entire security
+    // model. Rules cannot bind a counter increment to the event that
+    // justified it: a rule permissive enough to let a client add 10 to its
+    // own xp is permissive enough to let it add 10 a thousand times, and
+    // there is no way to say "only alongside a matching event". So there
+    // is no counter. A user's XP is the sum of their rows here, and a row
+    // only exists if this file agreed to create it.
+    //
+    // Three independent things have to hold, and none of them are the
+    // client's to decide:
+    //   1. the document ID is derived from the achievement, so one
+    //      achievement can only ever produce one row - a replay is a
+    //      create against an existing ID, which Firestore refuses. This is
+    //      also what caps the economy: a Tomorrow trip's ID carries the
+    //      travel date and direction, so no volume of fabricated requests
+    //      can earn more than the two legs a real commuter makes in a day.
+    //   2. the amount must equal the canonical value for the reason and
+    //      role. Clients cannot price their own rewards.
+    //   3. sourceId must point at a real document that proves the claim,
+    //      in a state the claimer could not have reached alone - a trip
+    //      only reaches "completed" when the other party confirms it.
+    //
+    // Mirrored by XpRules in the app. This file is the authority.
+    match /xp_events/{eventId} {
+
+      function evUser()   { return request.resource.data.userId; }
+      function evReason() { return request.resource.data.reason; }
+      function evRole()   { return request.resource.data.role; }
+      function evSource() { return request.resource.data.sourceId; }
+      function evAmount() { return request.resource.data.amount; }
+      function evIsRider() { return evRole() == "rider"; }
+
+      // Completing a trip is the only thing worth real XP, and the rider
+      // earns more for doing the driving. Note what is absent: accepting a
+      // passenger, which used to pay the rider 10 XP on the spot and could
+      // be farmed forever by two accounts (accept, cancel, resubmit,
+      // accept) without a wheel turning. Nothing pays before a trip ends.
+      function amountIsCanonical() {
+        return (evReason() == "plan_saved" && evAmount() == 2)
+          || (evReason() == "tomorrow_trip_completed" && evIsRider() && evAmount() == 12)
+          || (evReason() == "tomorrow_trip_completed" && !evIsRider() && evAmount() == 8)
+          || (evReason() == "ride_now_trip_completed" && evIsRider() && evAmount() == 12)
+          || (evReason() == "ride_now_trip_completed" && !evIsRider() && evAmount() == 8);
+      }
+
+      function idMatches(dedupeKey) {
+        return eventId == evUser() + "__" + evReason() + "__" + dedupeKey;
+      }
+
+      // NOTE ON SHAPE: every one of these checks its reason BEFORE it
+      // reads anything, and each does exactly one get(). That is not
+      // stylistic. allow create ORs the three together, so a
+      // tomorrow_trip_completed row would otherwise still run the
+      // plan_saved branch's get() first - against /rides/{a ride_requests
+      // id}, which does not exist. get() on a missing document yields
+      // null, reading .data off null is an evaluation error, and an error
+      // denies the whole write rather than falling through to the next
+      // branch. Guarding on reason first means only the matching branch
+      // ever touches the database.
+
+      // plan_saved: the claimer must actually have a plan saved for that
+      // travel date, and gets one award for it however many times they
+      // rewrite it. The old award fired on every newly created leg, and a
+      // still-pending plan is deletable - so save, delete, save paid out
+      // indefinitely.
+      function planSavedRow() {
+        return evReason() == "plan_saved"
+          && (evIsRider() ? riderPlanEvidence() : passengerPlanEvidence());
+      }
+
+      function riderPlanEvidence() {
+        let ride = get(/databases/$(database)/documents/rides/$(evSource())).data;
+        return ride.riderId == myUid() && idMatches(ride.rideDate);
+      }
+
+      function passengerPlanEvidence() {
+        let plan = get(/databases/$(database)/documents/ride_requests/$(evSource())).data;
+        return plan.userId == myUid() && idMatches(plan.rideDate);
+      }
+
+      // tomorrow_trip_completed: a leg that reached "completed", claimed
+      // by one of its two actual parties. The ID carries date + direction,
+      // so this is structurally capped at two awards per user per day.
+      function tomorrowTripRow() {
+        return evReason() == "tomorrow_trip_completed" && tomorrowTripEvidence();
+      }
+
+      function tomorrowTripEvidence() {
+        let leg = get(/databases/$(database)/documents/ride_requests/$(evSource())).data;
+
+        return leg.status == "completed"
+          && leg.get('issueReported', false) == false
+          && (evIsRider() ? leg.matchedRiderId == myUid() : leg.userId == myUid())
+          && idMatches(leg.rideDate + "__" + leg.tripDirection);
+      }
+
+      // ride_now_trip_completed: one award per completion day per route.
+      //
+      // Ride Now has no travel date of its own to key on the way a Tomorrow
+      // leg does, and keying on the request id alone left this as the one
+      // uncapped hole in the economy - two accounts could cycle go-live,
+      // request, accept, start, confirm, complete, confirm in about a
+      // minute and repeat it all evening. The day comes from the trip's own
+      // completedAt, so it is not the client's to choose.
+      function rideNowTripRow() {
+        return evReason() == "ride_now_trip_completed" && rideNowTripEvidence();
+      }
+
+      function rideNowTripEvidence() {
+        let trip = get(/databases/$(database)/documents/ride_now_requests/$(evSource())).data;
+        let day = trip.completedAt;
+        let dayKey = string(day.year()) + "-" + string(day.month()) + "-" + string(day.day());
+
+        return trip.status == "completed"
+          && trip.get('issueReported', false) == false
+          && (evIsRider() ? trip.matchedRiderId == myUid() : trip.passengerId == myUid())
+          && idMatches(dayKey + "__" + trip.routeKey);
+      }
+
+      allow create: if signedIn()
+        && evUser() == myUid()
+        && evRole() in ["rider", "passenger"]
+        && amountIsCanonical()
+        && evSource() is string
+        && evSource().size() > 0
+        && (planSavedRow() || tomorrowTripRow() || rideNowTripRow());
+
+      allow read: if signedIn() && resource.data.userId == myUid();
+
+      // Append-only, forever. A row that could be edited or deleted is a
+      // row that could be re-earned.
       allow update: if false;
       allow delete: if false;
     }

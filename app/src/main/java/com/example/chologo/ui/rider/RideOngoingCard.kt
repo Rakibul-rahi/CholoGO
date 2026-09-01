@@ -16,12 +16,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.RideNowRequest
+import com.example.chologo.data.model.VehicleType
 
 @Composable
 fun RideOngoingCard(
@@ -250,17 +252,25 @@ private fun RideOngoingInfoSection(
             value = request.destination
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
+        // Only the passenger needs this - a rider knows their own vehicle.
+        if (!isRider) {
+            Spacer(modifier = Modifier.height(10.dp))
 
-        RideOngoingInfoRow(
-            icon = Icons.Default.Timer,
-            label = if (isRider) {
-                "Estimated Fare"
-            } else {
-                "Current Fare"
-            },
-            value = "${getOngoingRideFare(request)} Tk"
-        )
+            RideOngoingInfoRow(
+                icon = if (VehicleType.isCar(request.matchedVehicleType)) {
+                    Icons.Default.DirectionsCar
+                } else {
+                    Icons.Default.TwoWheeler
+                },
+                label = "Vehicle",
+                value = VehicleType.detailsSummary(
+                    request.matchedVehicleType,
+                    request.matchedVehicleModel,
+                    request.matchedVehicleNumber,
+                    request.matchedVehicleColor
+                ) ?: VehicleType.label(request.matchedVehicleType)
+            )
+        }
     }
 }
 
@@ -504,23 +514,6 @@ private fun RideOngoingActionButton(
                     fontSize = 13.sp
                 )
             }
-        }
-    }
-}
-
-private fun getOngoingRideFare(
-    request: RideNowRequest
-): Int {
-
-    return when {
-
-        request.pickup.equals("AUST Gate", ignoreCase = true) ||
-                request.destination.equals("AUST Gate", ignoreCase = true) -> {
-            40
-        }
-
-        else -> {
-            50
         }
     }
 }

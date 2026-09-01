@@ -25,12 +25,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
 import com.example.chologo.data.model.User
+import com.example.chologo.data.model.VehicleType
 import com.example.chologo.navigation.Screen
 import com.example.chologo.repository.UserRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -129,6 +132,16 @@ fun ProfileScreen(navController: NavController) {
     val studentId = user?.studentId ?: "Not provided"
     val university = user?.university ?: "Not provided"
     val homeLocation = user?.homeLocation ?: "Not provided"
+
+    val isRider = user?.role.equals("rider", ignoreCase = true)
+    val vehicleSummary = user?.let {
+        VehicleType.detailsSummary(
+            it.vehicleType,
+            it.vehicleModel,
+            it.vehicleNumber,
+            it.vehicleColor
+        ) ?: VehicleType.label(it.vehicleType)
+    } ?: "Not provided"
 
     fun goBackSafely() {
         val popped = navController.popBackStack()
@@ -234,6 +247,21 @@ fun ProfileScreen(navController: NavController) {
                         label = "Home Location",
                         value = homeLocation
                     )
+
+                    // Only riders have one, and only they need to check it.
+                    if (isRider) {
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        ProfileInfoCard(
+                            icon = if (VehicleType.isCar(user?.vehicleType.orEmpty())) {
+                                Icons.Default.DirectionsCar
+                            } else {
+                                Icons.Default.TwoWheeler
+                            },
+                            label = "Vehicle",
+                            value = vehicleSummary
+                        )
+                    }
                 }
             }
 

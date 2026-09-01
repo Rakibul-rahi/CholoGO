@@ -24,10 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -66,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.ui.components.LevelCard
+import com.example.chologo.utils.Greeting
 import com.example.chologo.utils.LevelInfo
 import com.google.firebase.Timestamp
 import java.text.SimpleDateFormat
@@ -154,7 +157,12 @@ data class RideCardUi(
     val destination: String,
     val departureTime: String,
     val seatsLeft: Int,
-    val phone: String = ""
+    val phone: String = "",
+
+    // "Car · Toyota Axio · White" style summary, or just "Bike". Blank hides
+    // the row entirely, for call sites that don't know the vehicle.
+    val vehicleLabel: String = "",
+    val isCar: Boolean = false
 )
 
 @Composable
@@ -346,12 +354,7 @@ fun PassengerHeroCard(
     levelInfo: LevelInfo,
     isLevelLoading: Boolean
 ) {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val greeting = when {
-        hour < 12 -> "Good Morning"
-        hour < 18 -> "Good Afternoon"
-        else -> "Good Evening"
-    }
+    val greeting = Greeting.forHour()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -985,6 +988,19 @@ fun PassengerRideCard(
                 icon = Icons.Default.LocationOn,
                 text = "${ride.origin} → ${ride.destination} · ${ride.departureTime}"
             )
+
+            if (ride.vehicleLabel.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+
+                RideMetaRow(
+                    icon = if (ride.isCar) {
+                        Icons.Default.DirectionsCar
+                    } else {
+                        Icons.Default.TwoWheeler
+                    },
+                    text = ride.vehicleLabel
+                )
+            }
 
             if (ride.phone.isNotBlank()) {
                 Spacer(modifier = Modifier.height(12.dp))

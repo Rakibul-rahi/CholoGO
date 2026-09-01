@@ -8,9 +8,12 @@ import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.data.model.RideRating
 import com.example.chologo.data.model.RideReport
+import com.example.chologo.data.model.VehicleType
+import com.example.chologo.data.model.XpRules
 import com.example.chologo.data.repository.RideNowFeedbackRepository
 import com.example.chologo.data.repository.RideNowLiveRepository
 import com.example.chologo.data.repository.RideNowRequestRepository
+import com.example.chologo.data.repository.XpRepository
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +43,8 @@ data class RideNowUiState(
 class RideNowViewModel(
     private val liveRepository: RideNowLiveRepository = RideNowLiveRepository(),
     private val requestRepository: RideNowRequestRepository = RideNowRequestRepository(),
-    private val feedbackRepository: RideNowFeedbackRepository = RideNowFeedbackRepository()
+    private val feedbackRepository: RideNowFeedbackRepository = RideNowFeedbackRepository(),
+    private val xpRepository: XpRepository = XpRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RideNowUiState())
@@ -166,7 +170,11 @@ class RideNowViewModel(
         tripTime: String,
         timeMinutes: Int,
         routeKey: String,
-        availableSeats: Int
+        availableSeats: Int,
+        vehicleType: String = "",
+        vehicleModel: String = "",
+        vehicleNumber: String = "",
+        vehicleColor: String = ""
     ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
@@ -194,6 +202,10 @@ class RideNowViewModel(
                 tripTime = tripTime,
                 timeMinutes = timeMinutes,
                 routeKey = routeKey,
+                vehicleType = VehicleType.normalize(vehicleType),
+                vehicleModel = vehicleModel,
+                vehicleNumber = vehicleNumber,
+                vehicleColor = vehicleColor,
                 availableSeats = availableSeats,
                 status = "active",
                 isLiveNow = true,
@@ -537,6 +549,92 @@ class RideNowViewModel(
     }
 
     /**
+     * Rider gives up on a trip the passenger never got into - they never
+     * showed at the pickup, or never confirmed the start the rider
+     * already pressed.
+     *
+     * The UI only offers this once RideNowRequest.riderMayForceClose() is
+     * true, so it can't be used to bail out of a trip seconds after
+     * accepting it.
+     */
+    fun riderCancelUnstartedTrip(riderId: String) {
+        val requestId = _uiState.value.passengerRequest?.requestId
+            ?: _uiState.value.currentRequestId
+            ?: return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+
+            val result = requestRepository.riderCancelUnstartedTrip(requestId, riderId)
+
+            result.onSuccess {
+                clearRiderTripAfterForceClose("Trip cancelled. You are no longer live.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = e.message ?: "Failed to cancel trip."
+                )
+            }
+        }
+    }
+
+    /**
+     * Rider closes a trip they actually drove but the passenger never
+     * confirmed the end of. Lands on UNVERIFIED rather than COMPLETED -
+     * one side's word alone doesn't earn a completed trip - so it gets no
+     * history entry and no rating, and exists only to free both of them.
+     */
+    fun riderCloseUnconfirmedTrip(riderId: String) {
+        val requestId = _uiState.value.passengerRequest?.requestId
+            ?: _uiState.value.currentRequestId
+            ?: return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+
+            val result = requestRepository.riderCloseUnconfirmedTrip(requestId, riderId)
+
+            result.onSuccess {
+                clearRiderTripAfterForceClose(
+                    "Trip closed as unverified - the passenger never confirmed it."
+                )
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = e.message ?: "Failed to close trip."
+                )
+            }
+        }
+    }
+
+    /**
+     * Drops every trace of the just-closed trip from the rider's session.
+     *
+     * Both force-close paths take the rider's LiveRide offline server-side,
+     * so the local mirror of it has to go too - otherwise the rider is
+     * left looking at a "You are Live" banner backed by an inactive
+     * document, and the still-attached request listener would keep
+     * re-delivering the closed trip.
+     */
+    private fun clearRiderTripAfterForceClose(message: String) {
+        stopPassengerRequestListener()
+        stopMatchingRequestsListener()
+        stopLiveRideListener()
+
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            passengerRequest = null,
+            currentRequestId = null,
+            isRequestActive = false,
+            riderLiveRide = null,
+            currentLiveRideId = null,
+            isRiderLive = false,
+            availableRequests = emptyList(),
+            successMessage = message
+        )
+    }
+
+    /**
      * Called when the passenger explicitly asks to search for a new Ride
      * Now trip after their last one finished (completed, cancelled,
      * expired, or had an issue reported). Completion in particular has no
@@ -562,6 +660,24 @@ class RideNowViewModel(
 
         viewModelScope.launch {
             requestRepository.expireRequestIfNeeded(requestId)
+        }
+    }
+
+    /**
+     * Attaches the passenger's active-request listener, after first
+     * clearing out anything that's been abandoned.
+     *
+     * The sweep has to come first, and has to be awaited: the listener has
+     * no age bound of its own, so without this it would immediately hand
+     * the UI a trip from days ago and pin the passenger on its lifecycle
+     * card - unable to cancel it and unable to request a new ride. The
+     * rider side never had this problem because forceReleaseStaleLiveRides
+     * wipes their LiveRide clean every time they go live.
+     */
+    fun startPassengerRideNowSession(passengerId: String) {
+        viewModelScope.launch {
+            requestRepository.closeAbandonedPassengerRequests(passengerId)
+            listenPassengerActiveRide(passengerId)
         }
     }
 
@@ -628,11 +744,49 @@ class RideNowViewModel(
             )
 
             result.onSuccess {
+                // Close the trip out first. The XP write must never gate
+                // this: a Firestore Task only resolves on server
+                // acknowledgement, so awaiting the ledger here would leave
+                // the passenger pinned on the completion card whenever the
+                // network is slow or absent - on a trip that had already
+                // completed.
                 _uiState.value = _uiState.value.copy(
                     isRequestActive = false,
                     currentRequestId = null,
                     successMessage = "Ride completed."
                 )
+
+                // Claim the passenger's half in the background. The rider's
+                // half is claimed by their own dashboard the next time it
+                // opens - only one side is ever present at the moment a
+                // trip ends, and the ledger's derived IDs make re-offering
+                // it free.
+                launch {
+                    // Re-read rather than reusing the pre-write snapshot:
+                    // the dedupe key is built from completedAt, which only
+                    // exists once the write above has landed.
+                    val completed = requestRepository.getRideNowRequestById(requestId)
+                        ?: return@launch
+
+                    val dedupeKey = XpRules.rideNowTripDedupeKey(
+                        completed.completedAt,
+                        completed.routeKey
+                    ) ?: return@launch
+
+                    val awarded = xpRepository.awardXp(
+                        userId = completed.passengerId,
+                        reason = XpRules.REASON_RIDE_NOW_TRIP,
+                        role = XpRules.ROLE_PASSENGER,
+                        sourceId = requestId,
+                        dedupeKey = dedupeKey
+                    )
+
+                    if (awarded) {
+                        _uiState.value = _uiState.value.copy(
+                            successMessage = "Ride completed (+${XpRules.TRIP_XP_PASSENGER} XP)"
+                        )
+                    }
+                }
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = e.message ?: "Failed to confirm ride completion."

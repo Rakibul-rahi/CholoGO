@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.data.model.VehicleType
 
 // ─── Palette matching LoginScreen / AuthChoiceScreen / SignupScreen ──────────
 private val Obsidian    = Color(0xFF090D12)
@@ -67,13 +68,25 @@ private val GradVoltDisabled = Brush.linearGradient(listOf(VoltDeep, VoltDeep))
 
 @Composable
 fun RoleSelectionScreen(
-    onCompleteProfile: (role: UserRole, phone: String) -> Unit = { _, _ -> },
+    onCompleteProfile: (
+        role: UserRole,
+        phone: String,
+        vehicleType: String,
+        vehicleModel: String,
+        vehicleNumber: String,
+        vehicleColor: String
+    ) -> Unit = { _, _, _, _, _, _ -> },
     isLoading: Boolean = false,
     externalErrorMessage: String? = null
 ) {
     var selectedRole by rememberSaveable { mutableStateOf<UserRole?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var localError by rememberSaveable { mutableStateOf("") }
+
+    var vehicleType by rememberSaveable { mutableStateOf(VehicleType.BIKE) }
+    var vehicleModel by rememberSaveable { mutableStateOf("") }
+    var vehicleNumber by rememberSaveable { mutableStateOf("") }
+    var vehicleColor by rememberSaveable { mutableStateOf("") }
 
     val finalError = if (localError.isNotEmpty()) localError else externalErrorMessage
 
@@ -144,6 +157,22 @@ fun RoleSelectionScreen(
                     localError = ""
                 }
             )
+
+            if (selectedRole == UserRole.RIDER) {
+                Spacer(modifier = Modifier.height(14.dp))
+
+                VehicleSelectionCard(
+                    vehicleType = vehicleType,
+                    onVehicleTypeChange = { vehicleType = it },
+                    vehicleModel = vehicleModel,
+                    onVehicleModelChange = { vehicleModel = it },
+                    vehicleNumber = vehicleNumber,
+                    onVehicleNumberChange = { vehicleNumber = it },
+                    vehicleColor = vehicleColor,
+                    onVehicleColorChange = { vehicleColor = it },
+                    enabled = !isLoading
+                )
+            }
 
             Spacer(modifier = Modifier.height(22.dp))
 
@@ -225,10 +254,19 @@ fun RoleSelectionScreen(
                     .background(brush = if (canSubmit && !isLoading) GradVolt else GradVoltDisabled)
                     .clickable(enabled = canSubmit && !isLoading) {
                         val role = selectedRole
+                        val isRider = role == UserRole.RIDER
+
                         when {
                             role == null -> localError = "Please choose Passenger or Rider"
                             !isValidSignupPhone(phone) -> localError = "Please enter a valid phone number"
-                            else -> onCompleteProfile(role, phone.trim())
+                            else -> onCompleteProfile(
+                                role,
+                                phone.trim(),
+                                if (isRider) vehicleType else "",
+                                if (isRider) vehicleModel.trim() else "",
+                                if (isRider) vehicleNumber.trim() else "",
+                                if (isRider) vehicleColor.trim() else ""
+                            )
                         }
                     },
                 contentAlignment = Alignment.Center
