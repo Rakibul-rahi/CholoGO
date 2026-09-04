@@ -60,10 +60,16 @@ data class RideRequest(
     val riderAnsweredAt: Timestamp? = null,
     val passengerAnsweredAt: Timestamp? = null,
 
-    // Rating / report
+    // Rating / report. "riderRated"/"rating"/"ratedAt" are the passenger's
+    // rating of the rider; "passengerRated"/"passengerRating"/
+    // "passengerRatedAt" mirror that in the other direction, the rider's
+    // rating of the passenger.
     val riderRated: Boolean = false,
     val rating: Int = 0,
     val ratedAt: Timestamp? = null,
+    val passengerRated: Boolean = false,
+    val passengerRating: Int = 0,
+    val passengerRatedAt: Timestamp? = null,
     val issueReported: Boolean = false,
     val reportReason: String = "",
     val reportDetails: String = "",

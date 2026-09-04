@@ -63,6 +63,7 @@ import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.data.model.riderMayForceClose
 import com.google.firebase.Timestamp
+import com.example.chologo.ui.common.RatingDialog
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
@@ -99,6 +100,8 @@ fun RiderRideNowScreen(
 
     var showPickupMenu by remember { mutableStateOf(false) }
     var showDestinationMenu by remember { mutableStateOf(false) }
+
+    var showRatingDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         authViewModel.loadCurrentUser()
@@ -143,6 +146,16 @@ fun RiderRideNowScreen(
             } else {
                 "to_home"
             }
+
+        // Going live again is the rider's way of moving on from a
+        // finished trip - without this, the still-attached listener on
+        // that completed request keeps re-delivering it, and the "Rate
+        // Passenger" card from the last trip would linger over the new
+        // live session. Mirrors PassengerRideNowScreen's "Find Another
+        // Ride" clearing the passenger side the same way.
+        if (passengerRequest?.status == RideNowStatus.COMPLETED) {
+            rideNowViewModel.clearCompletedRequest()
+        }
 
         rideNowViewModel.goLiveAsRider(
             riderId = authState.userId,
@@ -271,12 +284,52 @@ fun RiderRideNowScreen(
                 },
                 onCloseUnconfirmedTrip = {
                     rideNowViewModel.riderCloseUnconfirmedTrip(authState.userId)
+                },
+                onRatePassenger = {
+                    showRatingDialog = true
                 }
             )
         }
 
         RideNowInfoBanner(
             message = "Ride Now is for instant requests. Tomorrow rides are still managed from the main rider dashboard."
+        )
+    }
+
+    if (showRatingDialog && passengerRequest != null) {
+        RatingDialog(
+            subject = "Passenger",
+            onDismiss = {
+                showRatingDialog = false
+            },
+            onSubmit = { stars, comment ->
+                if (authState.userId.isBlank()) {
+                    Toast.makeText(
+                        context,
+                        "User not loaded yet.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@RatingDialog
+                }
+
+                if (passengerRequest.passengerId.isBlank()) {
+                    Toast.makeText(
+                        context,
+                        "Passenger not found.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@RatingDialog
+                }
+
+                rideNowViewModel.submitPassengerRating(
+                    ratedBy = authState.userId,
+                    ratedTo = passengerRequest.passengerId,
+                    stars = stars,
+                    comment = comment
+                )
+
+                showRatingDialog = false
+            }
         )
     }
 }
@@ -305,7 +358,8 @@ private fun RiderRideNowMainContent(
     onCancelRide: () -> Unit,
     onCallPassenger: () -> Unit,
     onCancelUnstartedTrip: () -> Unit,
-    onCloseUnconfirmedTrip: () -> Unit
+    onCloseUnconfirmedTrip: () -> Unit,
+    onRatePassenger: () -> Unit
 ) {
     val hasActiveRequest =
         uiState.riderLiveRide?.currentRequestId?.isNotBlank() == true
@@ -342,7 +396,8 @@ private fun RiderRideNowMainContent(
             onCancelRide = onCancelRide,
             onCallPassenger = onCallPassenger,
             onCancelUnstartedTrip = onCancelUnstartedTrip,
-            onCloseUnconfirmedTrip = onCloseUnconfirmedTrip
+            onCloseUnconfirmedTrip = onCloseUnconfirmedTrip,
+            onRatePassenger = onRatePassenger
         )
 
         RiderPassengerRequestList(
@@ -461,9 +516,20 @@ private fun RiderActiveTripSection(
     onCancelRide: () -> Unit,
     onCallPassenger: () -> Unit,
     onCancelUnstartedTrip: () -> Unit,
-    onCloseUnconfirmedTrip: () -> Unit
+    onCloseUnconfirmedTrip: () -> Unit,
+    onRatePassenger: () -> Unit
 ) {
-    if (!hasActiveRequest || request == null) {
+    // hasActiveRequest tracks the LiveRide's own currentRequestId, which
+    // the completion transaction clears back to "" the instant a trip
+    // finishes (so the rider becomes matchable again) - so gating on it
+    // alone hid the COMPLETED card, and the "Rate Passenger" button on it,
+    // the moment the trip that button was for actually completed. The
+    // completed request itself (still being delivered by its own by-ID
+    // listener) has to stay a valid reason to keep showing this section.
+    val hasSomethingToShow =
+        hasActiveRequest || request?.status == RideNowStatus.COMPLETED
+
+    if (!hasSomethingToShow || request == null) {
         RideNowInfoBanner(
             message = "Go live on your selected route to start receiving instant passenger requests."
         )
@@ -559,7 +625,8 @@ private fun RiderActiveTripSection(
             RideNowStatus.COMPLETED -> {
                 RideCompletedCard(
                     request = request,
-                    isRider = true
+                    isRider = true,
+                    onRatePassenger = onRatePassenger
                 )
             }
 
@@ -1130,6 +1197,7 @@ private fun String.toRideNowLabel(): String {
     }
 }
 
+@Composable
 private fun String.toRideNowAccent(): Color {
     return when (this) {
         RideNowStatus.SEARCHING -> AccentAmber

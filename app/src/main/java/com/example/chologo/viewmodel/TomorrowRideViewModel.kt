@@ -731,6 +731,39 @@ class TomorrowRideViewModel(
         }
     }
 
+    /** The mirror of [submitTomorrowRating]: the rider rating the passenger. */
+    fun submitTomorrowPassengerRating(
+        request: RideRequest,
+        ratedBy: String,
+        ratedTo: String,
+        stars: Int,
+        comment: String
+    ) {
+        viewModelScope.launch {
+            val rating = RideRating(
+                requestId = request.requestId,
+                rideId = request.matchedRideId,
+                passengerId = request.userId,
+                riderId = request.matchedRiderId,
+                ratedBy = ratedBy,
+                ratedTo = ratedTo,
+                stars = stars,
+                comment = comment,
+                createdAt = Timestamp.now()
+            )
+
+            val result = feedbackRepository.submitPassengerRating(rating)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(successMessage = "Rating submitted.")
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to submit rating."
+                )
+            }
+        }
+    }
+
     fun submitTomorrowReport(
         request: RideRequest,
         reportedBy: String,

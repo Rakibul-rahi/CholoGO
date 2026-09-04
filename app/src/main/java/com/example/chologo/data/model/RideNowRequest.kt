@@ -59,9 +59,16 @@ data class RideNowRequest(
     val riderRated: Boolean = false,
     val issueReported: Boolean = false,
 
-    // Rating info
+    // Rating info. "riderRated"/"rating"/"ratedAt" are the passenger's
+    // rating of the rider; "passengerRated"/"passengerRating"/
+    // "passengerRatedAt" are the mirror of that in the other direction, the
+    // rider's rating of the passenger - two independent one-shot slots on
+    // the same completed trip.
     val rating: Int = 0,
     val ratedAt: Timestamp? = null,
+    val passengerRated: Boolean = false,
+    val passengerRating: Int = 0,
+    val passengerRatedAt: Timestamp? = null,
 
     // Report info
     val reportReason: String = "",

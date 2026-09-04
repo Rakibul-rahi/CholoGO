@@ -7,6 +7,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -54,12 +55,12 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun CholoGOTheme(
-    // Every hand-built screen in the app is dark-only, regardless of the
-    // system setting - there's no light-mode styling anywhere else to
-    // match, so the few components that DO read this theme (dialogs,
-    // ripples) must stay dark too, or they'd flip light against a pitch-
-    // dark app the moment someone's phone is in light mode.
-    darkTheme: Boolean = true,
+    // Defaults to the user's saved choice (ThemeController, dark by default)
+    // rather than the system setting - every hand-built screen reads
+    // LocalIsDarkTheme (provided below) to pick its own light/dark tokens,
+    // so this must match or they'd disagree with the few components that DO
+    // read MaterialTheme directly (dialogs, ripples).
+    darkTheme: Boolean = ThemeController.isDarkTheme,
     // CholoGO has a deliberate brand look (dark + electric lime) used by
     // hand across every screen - letting Material You repaint the few
     // components that DO read the theme (dialogs, ripples) from the
@@ -77,9 +78,11 @@ fun CholoGOTheme(
         else -> LightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }

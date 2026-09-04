@@ -98,13 +98,30 @@ service cloud.firestore {
           && newReportCount == oldReportCount + 1;
       }
 
+      // Backs RideNowRequestRepository.passengerConfirmRideNowCompleted()
+      // and Tomorrowriderrepository.passengerConfirmTripCompleted(): the
+      // passenger confirming a trip bumps the matched rider's
+      // completedRideCount by exactly one, same shape as the rating/report
+      // bumps above.
+      function isValidCompletedRideBump() {
+        let oldCount = resource.data.get('completedRideCount', 0);
+        let newCount = request.resource.data.get('completedRideCount', 0);
+
+        return signedIn()
+          && userId != myUid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["completedRideCount"])
+          && newCount == oldCount + 1;
+      }
+
       allow create: if isOwner(userId);
 
       allow read: if signedIn();
 
       allow update: if ownerProfileEdit()
         || isValidRatingBump()
-        || isValidReportBump();
+        || isValidReportBump()
+        || isValidCompletedRideBump();
 
       allow delete: if isOwner(userId);
     }
@@ -315,6 +332,24 @@ service cloud.firestore {
             .hasOnly(["issueReported", "reportReason", "reportDetails", "reportedAt"]);
       }
 
+      // TomorrowFeedbackRepository.submitPassengerRating(): only the
+      // matched rider, one star rating, one time - the mirror of
+      // passengerSubmitRating above, rating the passenger instead of the
+      // rider. get()'d with a default since "passengerRated" doesn't exist
+      // on legs saved before this field did.
+      function riderSubmitRating() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.get('passengerRated', false) == false
+          && resource.data.get('issueReported', false) == false
+          && request.resource.data.passengerRated == true
+          && request.resource.data.passengerRating is int
+          && request.resource.data.passengerRating >= 1
+          && request.resource.data.passengerRating <= 5
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["passengerRated", "passengerRating", "passengerRatedAt"]);
+      }
+
       allow create: if isPassenger()
         && request.resource.data.userId == myUid()
         && request.resource.data.status == "pending";
@@ -342,7 +377,8 @@ service cloud.firestore {
         || passengerRetroAnswer()
         || riderRetroAnswer()
         || passengerSubmitRating()
-        || passengerSubmitReport();
+        || passengerSubmitReport()
+        || riderSubmitRating();
 
       // Deleting an already-accepted request would orphan the rider's seat
       // count with nothing to ever restore it. Block until a proper
@@ -603,6 +639,24 @@ service cloud.firestore {
             .hasOnly(["issueReported", "reportReason", "reportDetails", "reportedAt"]);
       }
 
+      // submitPassengerRating(): only the matched rider, one star rating,
+      // one time - the mirror of passengerSubmitRating above, rating the
+      // passenger instead of the rider. get()'d with a default since
+      // "passengerRated" doesn't exist on trips saved before this field
+      // did.
+      function riderSubmitRating() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.get('passengerRated', false) == false
+          && resource.data.get('issueReported', false) == false
+          && request.resource.data.passengerRated == true
+          && request.resource.data.passengerRating is int
+          && request.resource.data.passengerRating >= 1
+          && request.resource.data.passengerRating <= 5
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["passengerRated", "passengerRating", "passengerRatedAt"]);
+      }
+
       allow create: if passengerCreate();
 
       allow read: if
@@ -622,7 +676,8 @@ service cloud.firestore {
         || passengerConfirmCompletion()
         || passengerReportIssue()
         || passengerSubmitRating()
-        || passengerSubmitReport();
+        || passengerSubmitReport()
+        || riderSubmitRating();
 
       allow delete: if isPassenger()
         && resource.data.passengerId == myUid()

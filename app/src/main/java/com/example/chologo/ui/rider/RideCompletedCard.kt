@@ -11,12 +11,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -36,7 +40,8 @@ import com.example.chologo.data.model.XpRules
 @Composable
 fun RideCompletedCard(
     request: RideNowRequest,
-    isRider: Boolean
+    isRider: Boolean,
+    onRatePassenger: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -169,32 +174,61 @@ fun RideCompletedCard(
                 // RATING SECTION
                 //-----------------------------------
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                if (isRider) {
+                    if (request.passengerRated) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            repeat(5) { index ->
+                                Icon(
+                                    imageVector = if (index < request.passengerRating) {
+                                        Icons.Default.Star
+                                    } else {
+                                        Icons.Default.StarBorder
+                                    },
+                                    contentDescription = null,
+                                    tint = AccentAmber,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
 
-                    repeat(5) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = null,
-                            tint = AccentAmber,
-                            modifier = Modifier.size(18.dp)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "You rated the passenger ${request.passengerRating}/5",
+                            color = TextMed,
+                            fontSize = 12.sp
                         )
+                    } else if (onRatePassenger != null) {
+                        Button(
+                            onClick = onRatePassenger,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = LimeDim,
+                                contentColor = TextHigh
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Rate Passenger", fontWeight = FontWeight.Bold)
+                        }
                     }
+                } else {
+                    Text(
+                        text = if (request.riderRated) {
+                            "You rated this rider ${request.rating}/5"
+                        } else {
+                            "Rate your rider"
+                        },
+                        color = TextMed,
+                        fontSize = 12.sp
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = if (isRider) {
-                        "Passenger rated you 5⭐"
-                    } else {
-                        "Rate your rider"
-                    },
-                    color = TextMed,
-                    fontSize = 12.sp
-                )
 
                 Spacer(modifier = Modifier.height(18.dp))
 
