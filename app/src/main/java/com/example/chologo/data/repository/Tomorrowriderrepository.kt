@@ -48,6 +48,7 @@ class TomorrowRideRepository(
 ) {
     private val ridesRef = db.collection("rides")
     private val rideRequestsRef = db.collection("ride_requests")
+    private val usersRef = db.collection("users")
 
     private val apiBaseUrl = "https://chologo.onrender.com"
 
@@ -577,6 +578,14 @@ class TomorrowRideRepository(
                         "completedAt" to Timestamp.now()
                     )
                 )
+
+                if (request.matchedRiderId.isNotBlank()) {
+                    transaction.update(
+                        usersRef.document(request.matchedRiderId),
+                        "completedRideCount",
+                        FieldValue.increment(1)
+                    )
+                }
             }.await()
 
             Result.success(Unit)

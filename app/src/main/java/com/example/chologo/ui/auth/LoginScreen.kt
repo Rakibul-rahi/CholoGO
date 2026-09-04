@@ -44,36 +44,36 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.R
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import kotlin.math.sin
 
 // ─── Palette ────────────────────────────────────────────────────────────────
-private val Void        = Color(0xFF050709)
-private val Obsidian    = Color(0xFF090D12)
-private val Graphite    = Color(0xFF0F141C)
-private val SteelDark   = Color(0xFF141B26)
-private val SteelMid    = Color(0xFF1C2535)
-private val SteelLight  = Color(0xFF232E42)
+private val Void: Color        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF050709) else Color(0xFFFFFFFF)
+private val Obsidian: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF090D12) else Color(0xFFF8FAFC)
+private val Graphite: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0F141C) else Color(0xFFF1F4F8)
+private val SteelDark: Color   @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF141B26) else Color(0xFFFFFFFF)
+private val SteelMid: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1C2535) else Color(0xFFF3F5F9)
+private val SteelLight: Color  @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF232E42) else Color(0xFFE7ECF3)
 
 // Accent – electric lime family
-private val Volt        = Color(0xFFB8FF35)   // pure electric
-private val VoltGlow    = Color(0xFF8FD620)   // mid
-private val VoltDeep    = Color(0xFF4A7A0A)   // deep
-private val VoltGhost   = Color(0x1AB8FF35)   // 10 % tint fill
-private val VoltMist    = Color(0x08B8FF35)   // 5 % atmospheric
+private val Volt: Color        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFB8FF35) else Color(0xFF5C7A17)   // pure electric
+private val VoltGlow: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8FD620) else Color(0xFF4C6412)   // mid
+private val VoltDeep: Color    @Composable get() = Color(0xFF4A7A0A)   // deep
+private val VoltMist: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0x08B8FF35) else Color(0x085C7A17)   // 5 % atmospheric
 
 // Text
-private val SnowWhite   = Color(0xFFF8FAFC)
-private val Mist        = Color(0xFFB0BDD0)
-private val Fog         = Color(0xFF5A6880)
-private val Ghost       = Color(0xFF2A3548)
+private val SnowWhite: Color   @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF8FAFC) else Color(0xFF10151B)
+private val Mist: Color        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFB0BDD0) else Color(0xFF4B5563)
+private val Fog: Color         @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF5A6880) else Color(0xFF97A2AF)
+private val Ghost: Color       @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF2A3548) else Color(0xFFD8DEE6)
 
 // State
-private val ErrorRed    = Color(0xFFFF4D6A)
-private val ErrorTint   = Color(0x1AFF4D6A)
+private val ErrorRed: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFFF4D6A) else Color(0xFFC81E3A)
+private val ErrorTint: Color   @Composable get() = if (LocalIsDarkTheme.current) Color(0x1AFF4D6A) else Color(0x1AC81E3A)
 
 // Gradients
-private val GradVolt    = Brush.linearGradient(listOf(Volt, VoltGlow))
-private val GradVoltDisabled = Brush.linearGradient(listOf(VoltDeep, VoltDeep))
+private val GradVolt: Brush    @Composable get() = Brush.linearGradient(listOf(Volt, VoltGlow))
+private val GradVoltDisabled: Brush @Composable get() = Brush.linearGradient(listOf(VoltDeep, VoltDeep))
 
 
 // ─── Screen ─────────────────────────────────────────────────────────────────
@@ -374,6 +374,10 @@ fun LoginScreen(
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                 label = "btnScale"
             )
+            // drawBehind runs at draw time, outside composition, so the
+            // themed color it reads must be a plain value captured here
+            // rather than a @Composable property read inside the lambda.
+            val voltGlow = Volt.copy(alpha = 0.15f)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -386,7 +390,7 @@ fun LoginScreen(
                         if (!isLoading) {
                             drawRect(
                                 Brush.verticalGradient(
-                                    listOf(Color.Transparent, Volt.copy(alpha = 0.15f))
+                                    listOf(Color.Transparent, voltGlow)
                                 )
                             )
                         }

@@ -48,7 +48,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -67,7 +71,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
+import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.components.LevelCard
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.utils.Greeting
 import com.example.chologo.utils.LevelInfo
 import com.google.firebase.Timestamp
@@ -75,60 +81,79 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-val BgDeep = Color(0xFF0A0D0F)
-val BgSurface = Color(0xFF111418)
+val BgDeep: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0A0D0F) else Color(0xFFF7F9FA)
+val BgSurface: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF111418) else Color(0xFFEFF2F5)
 
-val CardBase = Color(0xFF161B20)
-val CardElevated = Color(0xFF1C2228)
-val CardHighlight = Color(0xFF202832)
+val CardBase: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF161B20) else Color(0xFFFFFFFF)
+val CardElevated: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1C2228) else Color(0xFFF1F4F7)
+val CardHighlight: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF202832) else Color(0xFFE8EEF3)
 
-val Lime = Color(0xFFC6F135)
-val LimeDim = Color(0xFF9DC429)
-val LimeDeep = Color(0xFF6F8F1A)
-val LimeGlow = Color(0x1FC6F135)
-val LimeGlowMd = Color(0x38C6F135)
+val Lime: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFC6F135) else Color(0xFF5E7A17)
+val LimeDim: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF9DC429) else Color(0xFF4C6412)
+val LimeDeep: Color @Composable get() = Color(0xFF6F8F1A)
+val LimeGlow: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0x1FC6F135) else Color(0x1F5E7A17)
+val LimeGlowMd: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0x38C6F135) else Color(0x385E7A17)
 
-val AccentBlue = Color(0xFF60A5FA)
-val AccentAmber = Color(0xFFFBBF24)
-val AccentEmerald = Color(0xFF34D399)
-val AccentRed = Color(0xFFF87171)
+val AccentBlue: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF60A5FA) else Color(0xFF1D6FE0)
+val AccentAmber: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFFBBF24) else Color(0xFFA6720A)
+val AccentEmerald: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF34D399) else Color(0xFF0E9A6B)
+val AccentRed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF87171) else Color(0xFFDC2626)
 
-val TextHigh = Color(0xFFF1F5F9)
-val TextMed = Color(0xFF8B96A5)
-val TextLow = Color(0xFF4E5A66)
+val TextHigh: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF1F5F9) else Color(0xFF10151B)
+val TextMed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8B96A5) else Color(0xFF4B5563)
+val TextLow: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF4E5A66) else Color(0xFF98A2AE)
 
-val BorderSubtle = Color.White.copy(alpha = 0.07f)
-val BorderFocus = Color(0x59C6F135)
+val BorderSubtle: Color @Composable get() = if (LocalIsDarkTheme.current) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.08f)
+val BorderFocus: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0x59C6F135) else Color(0x595E7A17)
 
-val GradientLime = Brush.linearGradient(
+val GradientLime: Brush @Composable get() = Brush.linearGradient(
     listOf(Lime, LimeDim)
 )
 
-val GradientHero = Brush.linearGradient(
-    listOf(
-        Color(0xFF1A2410),
-        Color(0xFF0D1A0A),
-        BgSurface
-    )
-)
+val GradientHero: Brush
+    @Composable get() = if (LocalIsDarkTheme.current) {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF1A2410),
+                Color(0xFF0D1A0A),
+                BgSurface
+            )
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFFEDF6DC),
+                Color(0xFFF6FAF0),
+                BgSurface
+            )
+        )
+    }
 
-val GradientCard = Brush.linearGradient(
-    listOf(CardBase, BgSurface)
-)
+val GradientCard: Brush @Composable get() = Brush.linearGradient(listOf(CardBase, BgSurface))
 
-val GradientActive = Brush.linearGradient(
+val GradientActive: Brush @Composable get() = Brush.linearGradient(
     listOf(
         Lime.copy(alpha = 0.06f),
         CardBase
     )
 )
 
-val GradientAd = Brush.linearGradient(
-    listOf(
-        Color(0xFF1A1030),
-        Color(0xFF0D1520)
-    )
-)
+val GradientAd: Brush
+    @Composable get() = if (LocalIsDarkTheme.current) {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF1A1030),
+                Color(0xFF0D1520)
+            )
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFFF1EAFB),
+                Color(0xFFEAF1FB)
+            )
+        )
+    }
 
 val availableLocations = listOf(
     "Lalbag",
@@ -355,13 +380,18 @@ fun PassengerHeroCard(
     isLevelLoading: Boolean
 ) {
     val greeting = Greeting.forHour()
+    // drawBehind runs at draw time, outside composition, so the themed
+    // colors it reads must be plain values captured here rather than
+    // @Composable property reads inside the lambda.
+    val lime = Lime
+    val accentEmerald = AccentEmerald
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        border = BorderStroke(1.dp, Lime.copy(alpha = 0.15f))
+        border = BorderStroke(1.dp, lime.copy(alpha = 0.15f))
     ) {
         Box(
             modifier = Modifier
@@ -369,12 +399,12 @@ fun PassengerHeroCard(
                 .background(GradientHero)
                 .drawBehind {
                     drawCircle(
-                        color = Lime.copy(alpha = 0.15f),
+                        color = lime.copy(alpha = 0.15f),
                         radius = size.width * 0.42f,
                         center = Offset(size.width * 0.94f, -20f)
                     )
                     drawCircle(
-                        color = AccentEmerald.copy(alpha = 0.10f),
+                        color = accentEmerald.copy(alpha = 0.10f),
                         radius = size.width * 0.25f,
                         center = Offset(-20f, size.height + 10f)
                     )
@@ -1051,6 +1081,58 @@ fun PassengerRideCard(
             }
         }
     }
+}
+
+/**
+ * A rider's track record as seen by a passenger: their star rating and how
+ * many trips they've actually completed. Kept separate from RideNowRequest
+ * since neither figure is denormalized onto it - both live on the rider's
+ * own user doc and are looked up by [matchedRiderId] once matched.
+ */
+data class RiderStats(
+    val ratingAverage: Double,
+    val ratingCount: Int,
+    val completedRideCount: Int
+) {
+    // An unrated rider isn't a bad rider - showing 0★ would read as a
+    // warning nobody earned. Five stars until evidence says otherwise.
+    val displayRating: Double get() = if (ratingCount <= 0) 5.0 else ratingAverage
+}
+
+/**
+ * Fetches [riderId]'s rating/completed-ride stats once per rider, for
+ * display on the matched-rider cards. Returns null while loading or when
+ * there's no rider to look up yet.
+ */
+@Composable
+fun rememberRiderStats(riderId: String): RiderStats? {
+    var stats by remember(riderId) { mutableStateOf<RiderStats?>(null) }
+
+    LaunchedEffect(riderId) {
+        if (riderId.isBlank()) {
+            stats = null
+            return@LaunchedEffect
+        }
+
+        UserRepository().getUserByUid(riderId) { result ->
+            stats = result.getOrNull()?.let {
+                RiderStats(
+                    ratingAverage = it.ratingAverage,
+                    ratingCount = it.ratingCount,
+                    completedRideCount = it.completedRideCount
+                )
+            }
+        }
+    }
+
+    return stats
+}
+
+/** "★ 4.8 · 12 completed rides", ready to drop into any Text/RideMetaRow. */
+fun riderStatsLabel(stats: RiderStats): String {
+    val rides = stats.completedRideCount
+    val rideWord = if (rides == 1) "ride" else "rides"
+    return "★ ${"%.1f".format(stats.displayRating)} · $rides completed $rideWord"
 }
 
 @Composable

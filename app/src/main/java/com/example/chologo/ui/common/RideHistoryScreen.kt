@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.chologo.data.model.RideHistory
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.data.model.answerFor
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.viewmodel.RideNowViewModel
 import com.example.chologo.viewmodel.TomorrowRideViewModel
 
@@ -89,10 +90,11 @@ fun RideHistoryScreen(
         tomorrowRideViewModel.startMissedRideReview(userId, isRider)
     }
 
-    val bgDark = Color(0xFF0B0F14)
-    val cardDark = Color(0xFF161B20)
-    val green = Color(0xFF00C853)
-    val softText = Color(0xFFB0BEC5)
+    val isDark = LocalIsDarkTheme.current
+    val bgDark = if (isDark) Color(0xFF0B0F14) else Color(0xFFF7F9FA)
+    val cardDark = if (isDark) Color(0xFF161B20) else Color(0xFFFFFFFF)
+    val green = if (isDark) Color(0xFF00C853) else Color(0xFF00913C)
+    val softText = if (isDark) Color(0xFFB0BEC5) else Color(0xFF56646F)
 
     Box(
         modifier = Modifier
@@ -206,7 +208,10 @@ private fun RideHistoryTopBar(
     onBackClick: () -> Unit,
     green: Color
 ) {
-    val topBarBg = Color(0xFF0B0F14)
+    val isDark = LocalIsDarkTheme.current
+    val topBarBg = if (isDark) Color(0xFF0B0F14) else Color(0xFFF7F9FA)
+    val textHigh = if (isDark) Color.White else Color(0xFF10151B)
+    val textMed = if (isDark) Color(0xFF90A4AE) else Color(0xFF56646F)
 
     Row(
         modifier = Modifier
@@ -221,7 +226,7 @@ private fun RideHistoryTopBar(
             Icon(
                 imageVector = Icons.Default.ArrowBack,
                 contentDescription = "Back",
-                tint = Color.White
+                tint = textHigh
             )
         }
 
@@ -230,14 +235,14 @@ private fun RideHistoryTopBar(
         Column {
             Text(
                 text = "Ride History",
-                color = Color.White,
+                color = textHigh,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
 
             Text(
                 text = "Your completed CholoGO trips",
-                color = Color(0xFF90A4AE),
+                color = textMed,
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -268,6 +273,9 @@ private fun RideHistoryHeroCard(
     green: Color,
     softText: Color
 ) {
+    val isDark = LocalIsDarkTheme.current
+    val textHigh = if (isDark) Color.White else Color(0xFF10151B)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -281,10 +289,11 @@ private fun RideHistoryHeroCard(
                 .fillMaxWidth()
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF16251E),
-                            Color(0xFF161B20)
-                        )
+                        colors = if (isDark) {
+                            listOf(Color(0xFF16251E), Color(0xFF161B20))
+                        } else {
+                            listOf(Color(0xFFE6F3E9), Color(0xFFFFFFFF))
+                        }
                     )
                 )
                 .padding(18.dp)
@@ -317,7 +326,7 @@ private fun RideHistoryHeroCard(
                         } else {
                             "Rider History"
                         },
-                        color = Color.White,
+                        color = textHigh,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -374,7 +383,7 @@ private fun EmptyRideHistoryCard(
 
             Text(
                 text = "No ride history yet",
-                color = Color.White,
+                color = if (LocalIsDarkTheme.current) Color.White else Color(0xFF10151B),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -398,6 +407,8 @@ private fun RideHistoryCard(
     green: Color,
     softText: Color
 ) {
+    val textHigh = if (LocalIsDarkTheme.current) Color.White else Color(0xFF10151B)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -437,7 +448,7 @@ private fun RideHistoryCard(
                         } else {
                             "Tomorrow Ride"
                         },
-                        color = Color.White,
+                        color = textHigh,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -519,13 +530,15 @@ private fun RideHistoryInfoRow(
     value: String,
     softText: Color
 ) {
+    val isDark = LocalIsDarkTheme.current
+
     Row(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color(0xFF90A4AE)
+            tint = if (isDark) Color(0xFF90A4AE) else Color(0xFF56646F)
         )
 
         Spacer(modifier = Modifier.width(10.dp))
@@ -539,7 +552,7 @@ private fun RideHistoryInfoRow(
 
             Text(
                 text = value,
-                color = Color.White,
+                color = if (isDark) Color.White else Color(0xFF10151B),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
             )
@@ -572,7 +585,9 @@ private fun MissedRideReviewCard(
     softText: Color,
     onAnswer: (didHappen: Boolean) -> Unit
 ) {
-    val amber = Color(0xFFFBBF24)
+    val isDark = LocalIsDarkTheme.current
+    val amber = if (isDark) Color(0xFFFBBF24) else Color(0xFFA6720A)
+    val textHigh = if (isDark) Color.White else Color(0xFF10151B)
 
     val ownAnswer = request.answerFor(isRider)
     val hasAnswered = ownAnswer.isNotBlank()
@@ -614,7 +629,7 @@ private fun MissedRideReviewCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Did this ride happen?",
-                        color = Color.White,
+                        color = textHigh,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -681,7 +696,7 @@ private fun MissedRideReviewCard(
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = green,
-                                contentColor = Color.Black
+                                contentColor = if (isDark) Color.Black else Color.White
                             )
                         ) {
                             Text("Yes, we rode", fontWeight = FontWeight.Bold)
@@ -691,9 +706,9 @@ private fun MissedRideReviewCard(
                             onClick = { onAnswer(false) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f)),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Color.White
+                                contentColor = textHigh
                             )
                         ) {
                             Text("No, it didn't")
@@ -706,7 +721,7 @@ private fun MissedRideReviewCard(
                         text = "$otherName is asked the same question. If your answers " +
                                 "disagree the trip is marked not verified, and counts " +
                                 "for neither of you.",
-                        color = Color(0xFF5B6B78),
+                        color = if (isDark) Color(0xFF5B6B78) else Color(0xFF8A97A2),
                         style = MaterialTheme.typography.bodySmall
                     )
                 }

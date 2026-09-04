@@ -39,18 +39,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.R
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
-private val BgStart = Color(0xFF1A1030)
-private val BgEnd = Color(0xFF0D1520)
-private val FooterBg = Color(0xFF12161C)
-private val BlueAccent = Color(0xFF60A5FA)
+private val BgStart: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1A1030) else Color(0xFFF1EAFB)
+private val BgEnd: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0D1520) else Color(0xFFEAF1FB)
+private val FooterBg: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF12161C) else Color(0xFFF1F4F7)
+private val BlueAccent: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF60A5FA) else Color(0xFF1D6FE0)
+// Sits on a black photo scrim regardless of theme, so it stays the bright brand lime in both modes.
 private val LimeAccent = Color(0xFFC6F135)
-private val TextHigh = Color(0xFFF1F5F9)
-private val TextMed = Color(0xFF8B96A5)
-private val BorderBlue = Color(0x3360A5FA)
-private val DotInactive = Color.White.copy(alpha = 0.18f)
+private val TextHigh: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF1F5F9) else Color(0xFF10151B)
+private val TextMed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8B96A5) else Color(0xFF4B5563)
+private val BorderBlue: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0x3360A5FA) else Color(0x331D6FE0)
+private val DotInactive: Color @Composable get() = if (LocalIsDarkTheme.current) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.18f)
 
 data class LocalAd(
     val companyName: String,

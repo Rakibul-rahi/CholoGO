@@ -9,10 +9,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import com.example.chologo.navigation.AppNavGraph
 import com.example.chologo.navigation.Screen
 import com.example.chologo.notifications.ReminderNotifications
 import com.example.chologo.ui.theme.CholoGOTheme
+import com.example.chologo.ui.theme.ThemeController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
@@ -25,14 +28,24 @@ class MainActivity : ComponentActivity() {
         // safe to do unconditionally on every launch, before anything ever
         // tries to schedule a Tomorrow Ride reminder.
         ReminderNotifications.ensureChannel(applicationContext)
+        ThemeController.init(applicationContext)
 
         setContent {
-            // Every screen in the app is hand-styled and ignores this
-            // theme already, EXCEPT the few plain Material3 components
-            // (AlertDialogs, default ripples) that read MaterialTheme
-            // colors - without this wrapper they'd fall back to Compose's
-            // raw default scheme instead of CholoGO's dark/lime brand.
+            // Every hand-styled screen picks its own colors via
+            // LocalIsDarkTheme (provided here), not MaterialTheme directly -
+            // this wrapper is still needed for the few plain Material3
+            // components (AlertDialogs, default ripples) that DO read
+            // MaterialTheme, so they stay in sync with the chosen mode.
             CholoGOTheme {
+                // Keeps status bar icons legible against each screen's top
+                // bar, which is near-black in dark mode and near-white in
+                // light mode.
+                val view = LocalView.current
+                val isDarkTheme = ThemeController.isDarkTheme
+                SideEffect {
+                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDarkTheme
+                }
+
                 MainAppEntry()
             }
         }

@@ -10,12 +10,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 
-private val DialogSurface = Color(0xFF161B20)
-private val TextHigh = Color(0xFFF1F5F9)
-private val TextMed = Color(0xFF8B96A5)
-private val AccentRed = Color(0xFFFF4D6A)
-private val FieldBorder = Color(0xFF2A3548)
+private val DialogSurface: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF161B20) else Color(0xFFFFFFFF)
+private val TextHigh: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF1F5F9) else Color(0xFF10151B)
+private val TextMed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8B96A5) else Color(0xFF4B5563)
+private val AccentRed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFFF4D6A) else Color(0xFFC81E3A)
+private val FieldBorder: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF2A3548) else Color(0xFFD3D9E0)
 
 @Composable
 fun ReportDialog(

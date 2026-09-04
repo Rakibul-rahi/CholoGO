@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 
 /**
  * Shown in place of [com.example.chologo.ui.components.LevelCard] for a
@@ -34,11 +35,12 @@ fun GuestSignInBanner(
     onSignInClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bgCard = Color(0xFF161B20)
-    val lime = Color(0xFFC6F135)
-    val limeDim = Color(0xFF9DC429)
-    val textHigh = Color(0xFFF1F5F9)
-    val textMed = Color(0xFF8B96A5)
+    val isDark = LocalIsDarkTheme.current
+    val bgCard = if (isDark) Color(0xFF161B20) else Color(0xFFFFFFFF)
+    val lime = if (isDark) Color(0xFFC6F135) else Color(0xFF5E7A17)
+    val limeDim = if (isDark) Color(0xFF9DC429) else Color(0xFF4C6412)
+    val textHigh = if (isDark) Color(0xFFF1F5F9) else Color(0xFF10151B)
+    val textMed = if (isDark) Color(0xFF8B96A5) else Color(0xFF4B5563)
 
     Box(
         modifier = modifier
@@ -47,11 +49,19 @@ fun GuestSignInBanner(
             .clip(RoundedCornerShape(24.dp))
             .background(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF1A2410),
-                        Color(0xFF0D1A0A),
-                        bgCard
-                    )
+                    colors = if (isDark) {
+                        listOf(
+                            Color(0xFF1A2410),
+                            Color(0xFF0D1A0A),
+                            bgCard
+                        )
+                    } else {
+                        listOf(
+                            Color(0xFFEDF6DC),
+                            Color(0xFFF6FAF0),
+                            bgCard
+                        )
+                    }
                 )
             )
             .border(
@@ -101,7 +111,7 @@ fun GuestSignInBanner(
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = lime,
-                    contentColor = Color.Black
+                    contentColor = if (isDark) Color.Black else Color.White
                 )
             ) {
                 Text(

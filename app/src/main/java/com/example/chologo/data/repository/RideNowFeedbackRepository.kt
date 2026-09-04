@@ -105,6 +105,106 @@ class RideNowFeedbackRepository(
         }
     }
 
+    /**
+     * The mirror of [submitRideRating]: the matched rider rating the
+     * passenger instead of the other way around. Writes the same
+     * ride_ratings collection (already ratedBy/ratedTo-generic) and bumps
+     * the same ratingAverage/ratingCount on the ratee's user doc, but
+     * marks completion on the request's "passenger" rating slot
+     * (passengerRated/passengerRating/passengerRatedAt) rather than the
+     * "rider" one, since a single trip has to track both directions
+     * independently.
+     */
+    suspend fun submitPassengerRating(rating: RideRating): Result<String> {
+        return try {
+            if (rating.ratedBy.isBlank()) {
+                return Result.failure(Exception("Rated by user is missing."))
+            }
+
+            if (rating.ratedTo.isBlank()) {
+                return Result.failure(Exception("Rated user is missing."))
+            }
+
+            if (rating.requestId.isBlank()) {
+                return Result.failure(Exception("Request ID is missing."))
+            }
+
+            if (rating.stars !in 1..5) {
+                return Result.failure(Exception("Rating must be between 1 and 5."))
+            }
+
+            val existingRating = ratingsRef
+                .whereEqualTo("requestId", rating.requestId)
+                .whereEqualTo("ratedBy", rating.ratedBy)
+                .limit(1)
+                .get()
+                .await()
+
+            if (!existingRating.isEmpty) {
+                return Result.failure(Exception("You already rated this passenger."))
+            }
+
+            val ratingDoc = if (rating.ratingId.isBlank()) {
+                ratingsRef.document()
+            } else {
+                ratingsRef.document(rating.ratingId)
+            }
+
+            val userDoc = usersRef.document(rating.ratedTo)
+            val requestDoc = rideNowRequestsRef.document(rating.requestId)
+
+            db.runTransaction { transaction ->
+                val userSnapshot = transaction.get(userDoc)
+                val requestSnapshot = transaction.get(requestDoc)
+
+                val alreadyRated = requestSnapshot.getBoolean("passengerRated") ?: false
+                val issueReported = requestSnapshot.getBoolean("issueReported") ?: false
+
+                if (alreadyRated) {
+                    throw Exception("You already rated this passenger.")
+                }
+
+                if (issueReported) {
+                    throw Exception("You cannot rate after an issue was reported.")
+                }
+
+                val oldAverage = userSnapshot.getDouble("ratingAverage") ?: 0.0
+                val oldCount = userSnapshot.getLong("ratingCount")?.toInt() ?: 0
+
+                val newCount = oldCount + 1
+                val newAverage = ((oldAverage * oldCount) + rating.stars) / newCount
+
+                val ratingToSave = rating.copy(
+                    ratingId = ratingDoc.id,
+                    createdAt = rating.createdAt ?: Timestamp.now()
+                )
+
+                transaction.set(ratingDoc, ratingToSave)
+
+                transaction.update(
+                    userDoc,
+                    mapOf(
+                        "ratingAverage" to newAverage,
+                        "ratingCount" to newCount
+                    )
+                )
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "passengerRated" to true,
+                        "passengerRating" to rating.stars,
+                        "passengerRatedAt" to Timestamp.now()
+                    )
+                )
+            }.await()
+
+            Result.success(ratingDoc.id)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun submitRideReport(report: RideReport): Result<String> {
         return try {
             if (report.reportedBy.isBlank()) {

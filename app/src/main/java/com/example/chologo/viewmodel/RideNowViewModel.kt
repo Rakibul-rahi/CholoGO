@@ -914,6 +914,42 @@ class RideNowViewModel(
         }
     }
 
+    /** The mirror of [submitRideRating]: the rider rating the passenger. */
+    fun submitPassengerRating(
+        ratedBy: String,
+        ratedTo: String,
+        stars: Int,
+        comment: String
+    ) {
+        val request = _uiState.value.passengerRequest ?: return
+
+        viewModelScope.launch {
+            val rating = RideRating(
+                requestId = request.requestId,
+                rideId = request.matchedRideId,
+                passengerId = request.passengerId,
+                riderId = request.matchedRiderId,
+                ratedBy = ratedBy,
+                ratedTo = ratedTo,
+                stars = stars,
+                comment = comment,
+                createdAt = Timestamp.now()
+            )
+
+            val result = feedbackRepository.submitPassengerRating(rating)
+
+            result.onSuccess {
+                _uiState.value = _uiState.value.copy(
+                    successMessage = "Rating submitted."
+                )
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = e.message ?: "Failed to submit rating."
+                )
+            }
+        }
+    }
+
     fun submitRideReport(
         reportedBy: String,
         reportedUserId: String,

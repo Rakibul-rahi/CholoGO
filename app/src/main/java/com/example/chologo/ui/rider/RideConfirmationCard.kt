@@ -210,6 +210,7 @@ private data class ConfirmationConfig(
     val helperText: String
 )
 
+@Composable
 private fun getConfirmationConfig(status: String): ConfirmationConfig {
     return when (status) {
         RideNowStatus.START_PENDING_CONFIRMATION -> {

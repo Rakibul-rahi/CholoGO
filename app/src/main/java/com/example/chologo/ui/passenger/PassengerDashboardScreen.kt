@@ -40,10 +40,12 @@ import com.example.chologo.ui.common.CholoGoTopBar
 import com.example.chologo.ui.common.GuestSignInBanner
 import com.example.chologo.ui.components.LevelCard
 import com.example.chologo.ui.components.LocalAdCarouselBanner
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.viewmodel.AuthViewModel
 import com.google.firebase.auth.FirebaseAuth
 
-private val DashboardBg = Color(0xFF0A0D0F)
+private val DashboardBg: Color
+    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0A0D0F) else Color(0xFFF7F9FA)
 
 @Composable
 fun PassengerDashboardScreen(

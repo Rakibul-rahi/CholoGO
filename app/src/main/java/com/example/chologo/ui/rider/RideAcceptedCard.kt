@@ -256,6 +256,17 @@ private fun RideAcceptedInfoSection(
                 request.matchedRiderPhone.ifBlank { "N/A" }
             }
         )
+
+        if (isRider) {
+            rememberPassengerStats(request.passengerId)?.let { stats ->
+                Spacer(modifier = Modifier.height(8.dp))
+
+                RideAcceptedInfoRow(
+                    label = "Passenger rating",
+                    value = passengerStatsLabel(stats)
+                )
+            }
+        }
     }
 }
 
