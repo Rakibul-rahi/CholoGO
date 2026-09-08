@@ -13,8 +13,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
@@ -27,6 +30,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -119,12 +123,25 @@ fun PassengerDashboardScreen(
             .background(DashboardBg),
         color = DashboardBg
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 36.dp)
-        ) {
-            item {
-                CholoGoTopBar(
+        // Capped and centered rather than a bare fillMaxSize(): on a wide
+        // tablet (e.g. Xiaomi Pad 6, ~1200dp+ wide in landscape) every card
+        // below stretched edge to edge, and the ad banner in particular -
+        // a fixed-height image area cropped to whatever width it's given -
+        // turned into an extreme, illegible zoom. Capping the column to a
+        // comfortable phone-like width and centering it leaves phones
+        // exactly as before (maxWidth never binds under ~600dp) while
+        // giving tablets calm margins instead of a stretched-out layout.
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter),
+                contentPadding = PaddingValues(bottom = 36.dp)
+            ) {
+                item {
+                    CholoGoTopBar(
                     onLogoClick = {
                         navController.navigate(Screen.PassengerHome.route) {
                             popUpTo(Screen.PassengerHome.route) {
@@ -219,6 +236,7 @@ fun PassengerDashboardScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

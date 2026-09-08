@@ -65,32 +65,33 @@ class RideNowRequestRepository(
         }
     }
 
+    /**
+     * Cancels the passenger's own Ride Now request, whatever state it's
+     * genuinely in server-side right now.
+     *
+     * Deliberately reads the request's true status transactionally instead
+     * of trusting a client-side guess (e.g. a possibly-stale local snapshot
+     * of a still-"searching" request that a rider has, in fact, just
+     * accepted): a cancel that lands after a rider's accept must still
+     * release that rider's LiveRide, or the rider is left permanently
+     * stuck showing "You are Live" with every future accept attempt
+     * failing. Reading the real status inside the transaction - rather
+     * than branching on the client's cache before calling this - is what
+     * makes that safe regardless of which state the passenger's screen
+     * happened to be showing when they tapped cancel.
+     *
+     * Only reachable while the trip hasn't actually started rolling yet
+     * (SEARCHING/NOTIFIED/ACCEPTED/START_PENDING_CONFIRMATION). Once the
+     * rider has begun driving (ONGOING) or is waiting on the passenger's
+     * completion confirmation (END_PENDING_CONFIRMATION), cancelling here
+     * would race and silently discard the rider's own progress - backing
+     * out that late is the rider's own escape hatch
+     * (riderCancelUnstartedTrip/riderCloseUnconfirmedTrip), not this.
+     */
     suspend fun cancelRideNowRequest(requestId: String): Result<Unit> {
-        return try {
-            rideNowRequestsRef.document(requestId)
-                .update(
-                    mapOf(
-                        "status" to RideNowStatus.CANCELLED,
-                        "cancelledAt" to Timestamp.now()
-                    )
-                )
-                .await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun cancelAcceptedRideNowTrip(
-        requestId: String,
-        liveRideId: String
-    ): Result<Unit> {
         return try {
             db.runTransaction { transaction ->
                 val requestDoc = rideNowRequestsRef.document(requestId)
-                val rideDoc = liveRidesRef.document(liveRideId)
-
                 val requestSnapshot = transaction.get(requestDoc)
 
                 if (!requestSnapshot.exists()) {
@@ -100,42 +101,60 @@ class RideNowRequestRepository(
                 val request = requestSnapshot.toObject(RideNowRequest::class.java)
                     ?: throw Exception("Invalid ride request data.")
 
-                if (request.status == RideNowStatus.COMPLETED) {
-                    throw Exception("Completed ride cannot be cancelled.")
-                }
-
                 val now = Timestamp.now()
 
-                transaction.update(
-                    requestDoc,
-                    mapOf(
-                        "status" to RideNowStatus.CANCELLED,
-                        "cancelledAt" to now
-                    )
-                )
+                when (request.status) {
+                    RideNowStatus.SEARCHING, RideNowStatus.NOTIFIED -> {
+                        transaction.update(
+                            requestDoc,
+                            mapOf(
+                                "status" to RideNowStatus.CANCELLED,
+                                "cancelledAt" to now
+                            )
+                        )
+                    }
 
-                // Take the rider fully offline, not just "available again" -
-                // a cancelled trip must not silently drop them back into the
-                // matching pool. They have to tap "Go Live" again to receive
-                // new requests. "status": "inactive" is what actually
-                // enforces that (isRiderLive and acceptRideNowRequest's
-                // guard both require status == "active"); "available" stays
-                // true here because this write runs as the passenger, and
-                // the live_rides security rule only lets a passenger set
-                // available == true (never false, to stop a passenger from
-                // griefing an unrelated rider's doc) - see the field-name
-                // note in acceptRideNowRequest below for why it's
-                // "available"/"liveNow" and not "isAvailable"/"isLiveNow".
-                transaction.update(
-                    rideDoc,
-                    mapOf(
-                        "status" to "inactive",
-                        "available" to true,
-                        "liveNow" to false,
-                        "currentRequestId" to "",
-                        "lastUpdatedAt" to now
+                    RideNowStatus.ACCEPTED, RideNowStatus.START_PENDING_CONFIRMATION -> {
+                        transaction.update(
+                            requestDoc,
+                            mapOf(
+                                "status" to RideNowStatus.CANCELLED,
+                                "cancelledAt" to now
+                            )
+                        )
+
+                        // Take the rider fully offline, not just "available
+                        // again" - a cancelled trip must not silently drop
+                        // them back into the matching pool. They have to
+                        // tap "Go Live" again to receive new requests.
+                        // "status": "inactive" is what actually enforces
+                        // that (isRiderLive and acceptRideNowRequest's guard
+                        // both require status == "active"); "available"
+                        // stays true here because this write runs as the
+                        // passenger, and the live_rides security rule only
+                        // lets a passenger set available == true on the
+                        // ride they're currently matched to - see the
+                        // field-name note in acceptRideNowRequest below for
+                        // why it's "available"/"liveNow" and not
+                        // "isAvailable"/"isLiveNow".
+                        if (request.matchedRideId.isNotBlank()) {
+                            transaction.update(
+                                liveRidesRef.document(request.matchedRideId),
+                                mapOf(
+                                    "status" to "inactive",
+                                    "available" to true,
+                                    "liveNow" to false,
+                                    "currentRequestId" to "",
+                                    "lastUpdatedAt" to now
+                                )
+                            )
+                        }
+                    }
+
+                    else -> throw Exception(
+                        "This trip can no longer be cancelled - it's already under way or finished."
                     )
-                )
+                }
             }.await()
 
             Result.success(Unit)
@@ -352,7 +371,8 @@ class RideNowRequestRepository(
                         "status" to RideNowStatus.START_PENDING_CONFIRMATION,
                         "rideStartedByRider" to true,
                         "rideConfirmedByPassenger" to false,
-                        "startedAt" to null
+                        "startedAt" to null,
+                        "statusEnteredAt" to Timestamp.now()
                     )
                 )
             }.await()
@@ -430,7 +450,8 @@ class RideNowRequestRepository(
                         "status" to RideNowStatus.END_PENDING_CONFIRMATION,
                         "rideEndedByRider" to true,
                         "rideCompletedByPassenger" to false,
-                        "completedAt" to null
+                        "completedAt" to null,
+                        "statusEnteredAt" to Timestamp.now()
                     )
                 )
             }.await()
@@ -476,7 +497,7 @@ class RideNowRequestRepository(
                 // "Go Live" action. They must go live again to receive more
                 // requests. "status": "inactive" is what enforces that; see
                 // the field-name/available==true note in
-                // cancelAcceptedRideNowTrip above.
+                // cancelRideNowRequest above.
                 transaction.update(
                     rideDoc,
                     mapOf(
@@ -554,7 +575,7 @@ class RideNowRequestRepository(
                 // Same as completion/cancellation: take the rider fully
                 // offline rather than leaving them silently live. See the
                 // field-name/available==true note in
-                // cancelAcceptedRideNowTrip above.
+                // cancelRideNowRequest above.
                 transaction.update(
                     rideDoc,
                     mapOf(
@@ -625,7 +646,7 @@ class RideNowRequestRepository(
 
     /**
      * Releases a matched rider's LiveRide inside an already-open
-     * transaction. Identical to the writes in cancelAcceptedRideNowTrip /
+     * transaction. Identical to the writes in cancelRideNowRequest /
      * passengerConfirmRideNowCompleted - see the note there for why the
      * fields are "available"/"liveNow" and not the Kotlin property names,
      * and why the rider goes fully inactive rather than just free again.
@@ -777,6 +798,14 @@ class RideNowRequestRepository(
      * Returns how many requests were closed. Best-effort by design -
      * failures are swallowed per request so one bad document can't block
      * the rest of the sweep, or the tab.
+     *
+     * cancelRideNowRequest() only reaches ACCEPTED/START_PENDING_CONFIRMATION
+     * from the passenger side by design (see its own doc comment) - an
+     * abandoned ONGOING/END_PENDING_CONFIRMATION trip is left for the
+     * rider's own, much shorter (10-minute) escape hatch to resolve as
+     * UNVERIFIED instead, since by that point the trip may genuinely have
+     * happened and "cancelled" would be the wrong outcome to force from the
+     * passenger's side alone.
      */
     suspend fun closeAbandonedPassengerRequests(passengerId: String): Int {
         return try {
@@ -800,15 +829,11 @@ class RideNowRequestRepository(
                 // Reuses the ordinary passenger cancellation so the rider's
                 // LiveRide is released the same way it would be on a manual
                 // cancel - an abandoned trip that freed the passenger but
-                // left the rider pinned would just move the problem.
-                val result = if (request.matchedRideId.isNotBlank()) {
-                    cancelAcceptedRideNowTrip(
-                        requestId = request.requestId,
-                        liveRideId = request.matchedRideId
-                    )
-                } else {
-                    cancelRideNowRequest(request.requestId)
-                }
+                // left the rider pinned would just move the problem. Status
+                // is re-read transactionally inside cancelRideNowRequest
+                // itself, so this stays correct even though `request` here
+                // is a possibly-stale snapshot from the sweep's own query.
+                val result = cancelRideNowRequest(request.requestId)
 
                 if (result.isSuccess) closed++
             }

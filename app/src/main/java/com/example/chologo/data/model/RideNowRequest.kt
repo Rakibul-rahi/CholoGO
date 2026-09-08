@@ -40,6 +40,12 @@ data class RideNowRequest(
     val startedAt: Timestamp? = null,
     val completedAt: Timestamp? = null,
 
+    // Set whenever the rider moves the trip into a pending-confirmation
+    // phase (START_PENDING_CONFIRMATION/END_PENDING_CONFIRMATION), whose
+    // own "confirmed" timestamp (startedAt/completedAt) is still null at
+    // that point - see lastProgressSeconds() below for why this exists.
+    val statusEnteredAt: Timestamp? = null,
+
     // Cancellation / expiry
     val cancelledAt: Timestamp? = null,
     val expiredAt: Timestamp? = null,
@@ -90,9 +96,19 @@ object RideNowAbandonment {
  * The most recent moment either side actually did something on this
  * request. Used to age a trip rather than createdAt alone, so a long but
  * genuinely progressing trip is never swept away mid-ride.
+ *
+ * statusEnteredAt matters here specifically for the two pending-confirmation
+ * phases: while waiting on the passenger to confirm a start or a
+ * completion, startedAt/completedAt are still null (they only get set once
+ * the passenger actually confirms), so without statusEnteredAt this would
+ * fall back to acceptedAt or an earlier startedAt - timestamps from a
+ * previous phase, not from when this wait actually began. That previously
+ * let a long-but-normal earlier phase (e.g. driving to the pickup) make the
+ * rider's force-close grace period look like it had already elapsed the
+ * instant the new phase started.
  */
 fun RideNowRequest.lastProgressSeconds(): Long? {
-    return listOfNotNull(completedAt, startedAt, acceptedAt, createdAt)
+    return listOfNotNull(completedAt, startedAt, statusEnteredAt, acceptedAt, createdAt)
         .maxOfOrNull { it.seconds }
 }
 

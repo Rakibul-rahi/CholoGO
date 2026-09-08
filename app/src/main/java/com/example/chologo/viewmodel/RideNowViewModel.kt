@@ -116,33 +116,23 @@ class RideNowViewModel(
     /**
      * Cancels the passenger's current Ride Now request.
      *
-     * IMPORTANT: once a request has been matched to a rider (status is past
-     * SEARCHING and matchedRideId is set), cancelling MUST also release the
-     * rider's LiveRide document (isAvailable / currentRequestId), otherwise
-     * the rider gets permanently stuck showing "You are Live" while every
-     * future accept attempt fails with "This rider is no longer available."
-     * That's why this branches to cancelAcceptedRideNowTrip in that case
-     * instead of always calling the simple cancelRideNowRequest.
+     * The repository call itself reads the request's true status
+     * transactionally rather than trusting this ViewModel's local (and
+     * possibly momentarily stale) passengerRequest snapshot - so whether or
+     * not a rider's accept has landed yet, the correct outcome (a plain
+     * cancel, or one that also releases the matched rider's LiveRide)
+     * always happens server-side, regardless of what this screen currently
+     * shows.
      */
     fun cancelRideNowRequest() {
-        val request = _uiState.value.passengerRequest
-        val requestId = _uiState.value.currentRequestId ?: request?.requestId ?: return
-
-        val isMatchedToRider = request != null &&
-                request.status != RideNowStatus.SEARCHING &&
-                request.matchedRideId.isNotBlank()
+        val requestId = _uiState.value.currentRequestId
+            ?: _uiState.value.passengerRequest?.requestId
+            ?: return
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
 
-            val result = if (isMatchedToRider) {
-                requestRepository.cancelAcceptedRideNowTrip(
-                    requestId = requestId,
-                    liveRideId = request!!.matchedRideId
-                )
-            } else {
-                requestRepository.cancelRideNowRequest(requestId)
-            }
+            val result = requestRepository.cancelRideNowRequest(requestId)
 
             result.onSuccess {
                 _uiState.value = _uiState.value.copy(

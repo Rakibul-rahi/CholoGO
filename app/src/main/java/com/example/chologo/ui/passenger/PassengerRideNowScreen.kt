@@ -278,9 +278,9 @@ fun PassengerRideNowScreen(
                         },
                         // A real cancel, not a refusal toast. This is the
                         // passenger's only way out of a matched trip, and
-                        // cancelRideNowRequest routes an accepted one
-                        // through cancelAcceptedRideNowTrip so the rider's
-                        // LiveRide is released along with it.
+                        // cancelRideNowRequest reads the trip's true status
+                        // server-side to also release the rider's LiveRide
+                        // along with it.
                         onCancelRide = {
                             rideNowViewModel.cancelRideNowRequest()
                         }
@@ -520,6 +520,18 @@ fun PassengerRideNowScreen(
                     reason = reason,
                     details = details
                 )
+
+                // Reporting mid-trip (as opposed to after COMPLETED, the
+                // other place this same dialog is used from) must also
+                // move the request off END_PENDING_CONFIRMATION and free
+                // the rider's LiveRide - submitRideReport alone only files
+                // the report record, it doesn't unstick either side.
+                if (passengerRequest.status == RideNowStatus.END_PENDING_CONFIRMATION) {
+                    rideNowViewModel.reportRideIssue(
+                        requestId = passengerRequest.requestId,
+                        liveRideId = passengerRequest.matchedRideId
+                    )
+                }
 
                 showReportDialog = false
             }

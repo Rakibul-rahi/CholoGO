@@ -169,34 +169,53 @@ fun RideCompletedCard(
                 // RATING SECTION
                 //-----------------------------------
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                if (!isRider || request.riderRated) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
 
-                    repeat(5) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = null,
-                            tint = AccentAmber,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        repeat(5) { index ->
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = if (!isRider || index < request.rating) {
+                                    AccentAmber
+                                } else {
+                                    AccentAmber.copy(alpha = 0.25f)
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = if (isRider) {
+                            "Passenger rated you ${request.rating}⭐"
+                        } else {
+                            "Rate your rider"
+                        },
+                        color = TextMed,
+                        fontSize = 12.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+                } else {
+                    // The passenger hasn't rated yet - request.rating/
+                    // riderRated are still their unset defaults at the
+                    // instant this card first renders (status just became
+                    // COMPLETED), so showing stars here would be fabricated,
+                    // not merely stale.
+                    Text(
+                        text = "Waiting for the passenger to rate this trip.",
+                        color = TextMed,
+                        fontSize = 12.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = if (isRider) {
-                        "Passenger rated you 5⭐"
-                    } else {
-                        "Rate your rider"
-                    },
-                    color = TextMed,
-                    fontSize = 12.sp
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
 
                 //-----------------------------------
                 // FOOTER MESSAGE
@@ -204,7 +223,7 @@ fun RideCompletedCard(
 
                 Text(
                     text = if (isRider) {
-                        "You are now available to receive new Ride Now requests."
+                        "Trip closed. Tap \"Go Live\" whenever you're ready for your next Ride Now request."
                     } else {
                         "You saved 65 Tk compared to traditional ride sharing."
                     },

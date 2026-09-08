@@ -89,7 +89,11 @@ class TomorrowFeedbackRepository(
                     userDoc,
                     mapOf(
                         "ratingAverage" to newAverage,
-                        "ratingCount" to newCount
+                        "ratingCount" to newCount,
+                        // Lets firestore.rules' isValidRatingBump() verify
+                        // this bump against a real ride tying rater to
+                        // target, instead of trusting the two uids as-is.
+                        "lastRatingEvidenceId" to rating.requestId
                     )
                 )
 
@@ -170,8 +174,11 @@ class TomorrowFeedbackRepository(
 
                 transaction.update(
                     usersRef.document(report.reportedUserId),
-                    "reportCount",
-                    FieldValue.increment(1)
+                    mapOf(
+                        "reportCount" to FieldValue.increment(1),
+                        // See the matching note in submitRideRating() above.
+                        "lastReportEvidenceId" to report.requestId
+                    )
                 )
 
                 transaction.update(

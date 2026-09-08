@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -65,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,8 +76,13 @@ import com.example.chologo.data.model.Ride
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.data.model.RideRequestStatus
 import com.example.chologo.data.model.VehicleType
+import com.example.chologo.data.model.canStartTrip
 import com.example.chologo.data.model.seatCapacity
 import com.example.chologo.data.model.seatSummary
+import com.example.chologo.data.model.startTripUnlocksAtMillis
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.example.chologo.navigation.Screen
 import com.example.chologo.notifications.TomorrowRideReminderScheduler
 import com.example.chologo.data.repository.XpRepository
@@ -222,12 +229,25 @@ fun RiderDashboardScreen(
             .background(DashboardBg),
         color = DashboardBg
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 36.dp)
-        ) {
-            item {
-                CholoGoTopBar(
+        // Capped and centered rather than a bare fillMaxSize(): on a wide
+        // tablet (e.g. Xiaomi Pad 6, ~1200dp+ wide in landscape) every card
+        // below stretched edge to edge, and the ad banner in particular -
+        // a fixed-height image area cropped to whatever width it's given -
+        // turned into an extreme, illegible zoom. Capping the column to a
+        // comfortable phone-like width and centering it leaves phones
+        // exactly as before (maxWidth never binds under ~600dp) while
+        // giving tablets calm margins instead of a stretched-out layout.
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter),
+                contentPadding = PaddingValues(bottom = 36.dp)
+            ) {
+                item {
+                    CholoGoTopBar(
                     onLogoClick = {
                         navController.navigate(Screen.RiderHome.route) {
                             popUpTo(Screen.RiderHome.route) {
@@ -348,6 +368,7 @@ fun RiderDashboardScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -956,9 +977,17 @@ private fun MatchedPassengerRow(
 
         when (request.status) {
             RideRequestStatus.START_PENDING_CONFIRMATION -> {
-                RiderTripWaitingNotice(
-                    message = "Waiting for the passenger to confirm the trip started."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    RiderTripWaitingNotice(
+                        message = "Waiting for the passenger to confirm the trip started."
+                    )
+
+                    RiderEscapeHatchLink(
+                        text = "Passenger never showed up?",
+                        enabled = !isProcessing,
+                        onClick = { showCancelDialog = true }
+                    )
+                }
             }
 
             RideRequestStatus.ONGOING -> {
@@ -980,13 +1009,27 @@ private fun MatchedPassengerRow(
                         enabled = !isProcessing,
                         onClick = onCompleteTrip
                     )
+
+                    RiderEscapeHatchLink(
+                        text = "Passenger unreachable? Close this trip",
+                        enabled = !isProcessing,
+                        onClick = { showCancelDialog = true }
+                    )
                 }
             }
 
             RideRequestStatus.END_PENDING_CONFIRMATION -> {
-                RiderTripWaitingNotice(
-                    message = "Waiting for the passenger to confirm the trip is complete."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    RiderTripWaitingNotice(
+                        message = "Waiting for the passenger to confirm the trip is complete."
+                    )
+
+                    RiderEscapeHatchLink(
+                        text = "Passenger not responding? Close this trip",
+                        enabled = !isProcessing,
+                        onClick = { showCancelDialog = true }
+                    )
+                }
             }
 
             RideRequestStatus.COMPLETED -> {
@@ -1063,13 +1106,34 @@ private fun MatchedPassengerRow(
                         }
                     }
 
+                    val canStart = request.canStartTrip()
+
                     RiderFullWidthActionButton(
                         text = if (isProcessing) "Starting..." else "Start Trip",
                         icon = Icons.Default.PlayArrow,
                         accent = AccentBlue,
-                        enabled = !isProcessing,
+                        enabled = !isProcessing && canStart,
                         onClick = onStartTrip
                     )
+
+                    if (!canStart) {
+                        val unlocksAt = request.startTripUnlocksAtMillis()
+
+                        Text(
+                            text = if (unlocksAt != null) {
+                                "You can start this trip at " +
+                                        SimpleDateFormat("h:mm a", Locale.getDefault())
+                                            .format(Date(unlocksAt)) +
+                                        " (1 hour before departure)."
+                            } else {
+                                "Start Trip unlocks 1 hour before departure."
+                            },
+                            color = TextMed,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
@@ -1077,7 +1141,12 @@ private fun MatchedPassengerRow(
 
     if (showCancelDialog) {
         CancelRideDialog(
-            title = "Cancel this passenger's ride?",
+            title = when (request.status) {
+                RideRequestStatus.ONGOING,
+                RideRequestStatus.END_PENDING_CONFIRMATION ->
+                    "Close this trip as unverified?"
+                else -> "Cancel this passenger's ride?"
+            },
             onDismiss = { showCancelDialog = false },
             onConfirm = { reason ->
                 showCancelDialog = false
@@ -1127,6 +1196,32 @@ private fun RiderFullWidthActionButton(
             )
         }
     }
+}
+
+/**
+ * Small text-only trigger for a rider's abandonment escape hatch, shown
+ * under the waiting notice for a matched trip stuck on the passenger's
+ * side. Always visible once the trip is in one of these phases - unlike
+ * Ride Now, a Tomorrow leg has no built-in grace timer, so the rider judges
+ * for themselves when the passenger genuinely isn't coming.
+ */
+@Composable
+private fun RiderEscapeHatchLink(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Text(
+        text = text,
+        color = if (enabled) AccentAmber else AccentAmber.copy(alpha = 0.4f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 4.dp),
+        textAlign = TextAlign.Center
+    )
 }
 
 @Composable

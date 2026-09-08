@@ -879,9 +879,30 @@ fun RouteConnectorLabel(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The calendar date the Tomorrow flow means by "tomorrow" right now.
+ *
+ * Deliberately not a literal +1-day-from-midnight computation. This flow
+ * is meant to be set up late at night for the next morning's commute, and
+ * both the rider and passenger sides call this independently, on their own
+ * devices, whenever they happen to open the app - there's no shared clock
+ * to anchor them to. Using exact local midnight as the cutover meant a
+ * passenger saving a request at 11:58pm and a rider opening their
+ * dashboard five minutes later, at 12:03am, would silently key their
+ * otherwise-identical "tomorrow" to two different calendar dates and
+ * simply never see each other's listing - exactly the hours this feature
+ * is meant to be used in. Pushing the cutover to 4 AM, a time nobody is
+ * realistically setting up a same-morning ride at, makes that window far
+ * less likely to be hit in practice without needing a server-anchored
+ * clock. (The Tomorrow flow only ever runs in a single timezone - AUST,
+ * Dhaka - so timezone skew itself isn't a concern here, only the moment
+ * each device happens to evaluate "now".)
+ */
 fun getTomorrowDateKey(): String {
     val calendar = Calendar.getInstance()
-    calendar.add(Calendar.DAY_OF_YEAR, 1)
+    if (calendar.get(Calendar.HOUR_OF_DAY) >= 4) {
+        calendar.add(Calendar.DAY_OF_YEAR, 1)
+    }
     return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calendar.time)
 }
 
