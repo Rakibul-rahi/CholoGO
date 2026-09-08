@@ -2,6 +2,7 @@ package com.example.chologo.data.repository
 
 import com.example.chologo.data.model.MissedRideAnswer
 import com.example.chologo.data.model.Ride
+import com.example.chologo.data.model.RideHistory
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.data.model.RideRequestStatus
 import com.example.chologo.data.model.VehicleType
@@ -58,6 +59,7 @@ class TomorrowRideRepository(
 ) {
     private val ridesRef = db.collection("rides")
     private val rideRequestsRef = db.collection("ride_requests")
+    private val rideHistoryRef = db.collection("ride_history")
 
     private val apiBaseUrl = "https://chologo.onrender.com"
 
@@ -587,6 +589,13 @@ class TomorrowRideRepository(
                 newStatus
             }.await()
 
+            if (resolvedStatus == RideRequestStatus.COMPLETED) {
+                val completedRequest = getRequestById(requestId)
+                if (completedRequest != null) {
+                    saveTomorrowToHistory(completedRequest)
+                }
+            }
+
             Result.success(resolvedStatus)
         } catch (e: Exception) {
             Result.failure(e)
@@ -754,6 +763,70 @@ class TomorrowRideRepository(
                     )
                 )
             }.await()
+
+            val completedRequest = getRequestById(requestId)
+            if (completedRequest != null) {
+                saveTomorrowToHistory(completedRequest)
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getRequestById(requestId: String): RideRequest? {
+        return try {
+            val snapshot = rideRequestsRef.document(requestId).get().await()
+            snapshot.toObject(RideRequest::class.java)?.copy(requestId = snapshot.id)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Saves a completed Tomorrow leg to the shared ride_history collection
+     * - the same one Ride Now writes to, so RideHistoryScreen reads both
+     * ride types from one place. Without this, a completed Tomorrow leg
+     * never appeared in Ride History for either side: the collection only
+     * ever received "ride_now" rows.
+     *
+     * Called once a leg reaches COMPLETED, whether through the normal
+     * Start/Complete lifecycle (passengerConfirmTripCompleted) or the
+     * missed-ride reconciliation path (submitMissedRideAnswer) - both call
+     * sites pass the just-updated request, so this never needs its own
+     * read, and each only ever calls it once per leg (their own
+     * transactions gate on the leg's prior status, so a retry after
+     * success fails the precondition before reaching this call).
+     */
+    suspend fun saveTomorrowToHistory(request: RideRequest): Result<Unit> {
+        return try {
+            val historyDoc = rideHistoryRef.document()
+
+            val history = RideHistory(
+                historyId = historyDoc.id,
+                rideType = "tomorrow",
+
+                requestId = request.requestId,
+
+                passengerId = request.userId,
+                passengerName = request.passengerName,
+
+                riderId = request.matchedRiderId,
+                riderName = request.matchedRiderName,
+                riderPhone = request.matchedRiderPhone,
+
+                pickup = request.pickup,
+                destination = request.destination,
+                tripTime = request.tripTime,
+                timeMinutes = request.timeMinutes,
+
+                status = "completed",
+                createdAt = request.createdAt,
+                completedAt = request.completedAt ?: Timestamp.now()
+            )
+
+            historyDoc.set(history).await()
 
             Result.success(Unit)
         } catch (e: Exception) {

@@ -884,9 +884,15 @@ class RideNowRequestRepository(
         onData: (List<RideHistory>) -> Unit,
         onError: (Exception) -> Unit
     ): ListenerRegistration {
+        // Sorted client-side rather than via .orderBy("completedAt") -
+        // combining that with the equality filter above needs a composite
+        // index, and a rider/passenger whose Firestore project hadn't
+        // deployed the specific one for this query saw an empty-looking
+        // history (the listener's onError fired with FAILED_PRECONDITION,
+        // never onData) with no obvious cause. Matches how the Tomorrow
+        // flow's own listeners already avoid this.
         return rideHistoryRef
             .whereEqualTo("passengerId", passengerId)
-            .orderBy("completedAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     onError(error)
@@ -899,6 +905,7 @@ class RideNowRequestRepository(
                             historyId = doc.id
                         )
                     }
+                    ?.sortedByDescending { it.completedAt?.seconds ?: 0L }
                     ?: emptyList()
 
                 onData(historyList)
@@ -910,9 +917,9 @@ class RideNowRequestRepository(
         onData: (List<RideHistory>) -> Unit,
         onError: (Exception) -> Unit
     ): ListenerRegistration {
+        // See the note on listenPassengerRideHistory above.
         return rideHistoryRef
             .whereEqualTo("riderId", riderId)
-            .orderBy("completedAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     onError(error)
@@ -925,6 +932,7 @@ class RideNowRequestRepository(
                             historyId = doc.id
                         )
                     }
+                    ?.sortedByDescending { it.completedAt?.seconds ?: 0L }
                     ?: emptyList()
 
                 onData(historyList)

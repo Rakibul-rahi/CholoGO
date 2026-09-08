@@ -619,8 +619,15 @@ private fun MissedRideReviewCard(
                         fontWeight = FontWeight.Bold
                     )
 
+                    // Leads with the leg's own scheduled date/time, not a
+                    // generic line - this only ever appears for a trip
+                    // whose departure passed 3+ hours ago (see
+                    // needsMissedRideReview()), which can be an easy detail
+                    // to miss if the reader has a different, still-upcoming
+                    // leg on their mind at the same time.
                     Text(
-                        text = "Never marked as finished in the app",
+                        text = "${request.rideDate} at ${request.tripTime} - never marked " +
+                                "as finished in the app",
                         color = softText,
                         style = MaterialTheme.typography.bodySmall
                     )
