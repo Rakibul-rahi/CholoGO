@@ -8,6 +8,18 @@
  * variant of the same tokens.
  */
 :root {
+  /* Without this, native form controls - a <select>'s dropdown popup
+   * chief among them - render with the browser/OS's default light
+   * palette no matter what this page's own CSS says, since nothing here
+   * otherwise tells the browser this page has an opinion about light vs
+   * dark. Every <select> in the app inherits near-white text from body
+   * in dark mode; the popup itself stayed light-background regardless,
+   * making the options invisible (near-white text on a near-white
+   * native popup). Flipped to dark below, matching the same media query
+   * the color tokens already use.
+   */
+  color-scheme: light;
+
   --background: #f7f9fa;
   --foreground: #10151b;
 
@@ -54,6 +66,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
+
     --background: #0a0d0f;
     --foreground: #f1f5f9;
 
