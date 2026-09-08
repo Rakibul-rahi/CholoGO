@@ -540,6 +540,10 @@ export async function passengerConfirmTripCompleted(requestId: string): Promise<
       const { increment } = await import("firebase/firestore");
       transaction.update(doc(usersCol, request.matchedRiderId), {
         completedRideCount: increment(1),
+        // firestore.rules' isValidCompletedRideBump() requires this -
+        // without it this whole transaction (status update included) is
+        // rejected atomically, breaking trip completion outright.
+        lastCompletedRideEvidenceId: requestId,
       });
     }
   });
@@ -865,7 +869,13 @@ export async function submitTomorrowRideRating(params: {
       createdAt: Timestamp.now(),
     });
 
-    transaction.update(userRef, { ratingAverage: newAverage, ratingCount: newCount });
+    transaction.update(userRef, {
+      ratingAverage: newAverage,
+      ratingCount: newCount,
+      // firestore.rules' isValidRatingBump() requires this - it ties the
+      // bump to a real ride matching rater to ratee.
+      lastRatingEvidenceId: params.requestId,
+    });
     transaction.update(requestRef, {
       riderRated: true,
       rating: params.stars,
@@ -923,7 +933,13 @@ export async function submitTomorrowPassengerRating(params: {
       createdAt: Timestamp.now(),
     });
 
-    transaction.update(userRef, { ratingAverage: newAverage, ratingCount: newCount });
+    transaction.update(userRef, {
+      ratingAverage: newAverage,
+      ratingCount: newCount,
+      // See the matching note in submitTomorrowRideRating() above -
+      // isValidRatingBump() requires this for either rating direction.
+      lastRatingEvidenceId: params.requestId,
+    });
     transaction.update(requestRef, {
       passengerRated: true,
       passengerRating: params.stars,
@@ -977,6 +993,9 @@ export async function submitTomorrowRideReport(params: {
 
     transaction.update(doc(usersCol, params.reportedUserId), {
       reportCount: increment(1),
+      // firestore.rules' isValidReportBump() requires this - it ties the
+      // bump to a real ride matching reporter to reportee.
+      lastReportEvidenceId: params.requestId,
     });
 
     transaction.update(requestRef, {
