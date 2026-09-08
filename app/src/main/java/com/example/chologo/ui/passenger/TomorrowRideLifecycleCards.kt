@@ -105,6 +105,10 @@ fun TomorrowRideAcceptedCard(
         RideMetaRow(Icons.Default.Schedule, request.tripTime)
         Spacer(modifier = Modifier.height(8.dp))
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Accepted rider" })
+        rememberRiderStats(request.matchedRiderId)?.let { stats ->
+            Spacer(modifier = Modifier.height(8.dp))
+            RideMetaRow(Icons.Default.Star, riderStatsLabel(stats))
+        }
         Spacer(modifier = Modifier.height(8.dp))
         MatchedRiderVehicleRows(request)
 
@@ -144,6 +148,10 @@ fun TomorrowRideStartConfirmationCard(
         RideMetaRow(Icons.Default.LocationOn, "${request.pickup} → ${request.destination}")
         Spacer(modifier = Modifier.height(8.dp))
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Your rider" })
+        rememberRiderStats(request.matchedRiderId)?.let { stats ->
+            Spacer(modifier = Modifier.height(8.dp))
+            RideMetaRow(Icons.Default.Star, riderStatsLabel(stats))
+        }
         Spacer(modifier = Modifier.height(8.dp))
         MatchedRiderVehicleRows(request)
 
@@ -218,6 +226,11 @@ fun TomorrowRideOngoingCard(
 
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Your rider" })
 
+        rememberRiderStats(request.matchedRiderId)?.let { stats ->
+            Spacer(modifier = Modifier.height(8.dp))
+            RideMetaRow(Icons.Default.Star, riderStatsLabel(stats))
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(
@@ -253,6 +266,10 @@ fun TomorrowRideCompletionConfirmationCard(
         RideMetaRow(Icons.Default.LocationOn, "${request.pickup} → ${request.destination}")
         Spacer(modifier = Modifier.height(8.dp))
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Your rider" })
+        rememberRiderStats(request.matchedRiderId)?.let { stats ->
+            Spacer(modifier = Modifier.height(8.dp))
+            RideMetaRow(Icons.Default.Star, riderStatsLabel(stats))
+        }
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -306,6 +323,10 @@ fun TomorrowRideCompletedCard(
         RideMetaRow(Icons.Default.LocationOn, "${request.pickup} → ${request.destination}")
         Spacer(modifier = Modifier.height(8.dp))
         RideMetaRow(Icons.Default.Person, request.matchedRiderName.ifBlank { "Your rider" })
+        rememberRiderStats(request.matchedRiderId)?.let { stats ->
+            Spacer(modifier = Modifier.height(8.dp))
+            RideMetaRow(Icons.Default.Star, riderStatsLabel(stats))
+        }
 
         if (request.riderRated) {
             Spacer(modifier = Modifier.height(8.dp))

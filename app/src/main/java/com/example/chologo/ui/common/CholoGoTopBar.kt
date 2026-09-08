@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.R
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 
 @Composable
 fun CholoGoTopBar(
@@ -42,12 +43,13 @@ fun CholoGoTopBar(
     onRideHistoryClick: () -> Unit = {},
     onProfileClick: () -> Unit = {}
 ) {
-    val bgSurface = Color(0xFF111418)
-    val bgDeep = Color(0xFF0A0D0F)
-    val bgElevated = Color(0xFF1C2228)
+    val isDark = LocalIsDarkTheme.current
+    val bgSurface = if (isDark) Color(0xFF111418) else Color(0xFFEFF2F5)
+    val bgDeep = if (isDark) Color(0xFF0A0D0F) else Color(0xFFF7F9FA)
+    val bgElevated = if (isDark) Color(0xFF1C2228) else Color(0xFFF1F4F7)
 
-    val lime = Color(0xFFC6F135)
-    val textHigh = Color(0xFFF1F5F9)
+    val lime = if (isDark) Color(0xFFC6F135) else Color(0xFF5E7A17)
+    val textHigh = if (isDark) Color(0xFFF1F5F9) else Color(0xFF10151B)
     val borderFocus = lime.copy(alpha = 0.35f)
 
     Row(

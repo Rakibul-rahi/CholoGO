@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -251,6 +252,18 @@ private fun RideOngoingInfoSection(
             label = "Destination",
             value = request.destination
         )
+
+        if (isRider) {
+            rememberPassengerStats(request.passengerId)?.let { stats ->
+                Spacer(modifier = Modifier.height(10.dp))
+
+                RideOngoingInfoRow(
+                    icon = Icons.Default.Star,
+                    label = "Passenger rating",
+                    value = passengerStatsLabel(stats)
+                )
+            }
+        }
 
         // Only the passenger needs this - a rider knows their own vehicle.
         if (!isRider) {

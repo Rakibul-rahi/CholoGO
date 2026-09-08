@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -89,16 +90,19 @@ import com.example.chologo.data.repository.XpRepository
 import com.example.chologo.ui.common.CancelRideDialog
 import com.example.chologo.ui.common.CholoGoTabRow
 import com.example.chologo.ui.common.CholoGoTopBar
+import com.example.chologo.ui.common.RatingDialog
 import com.example.chologo.ui.common.rememberNotificationPermissionRequester
 import com.example.chologo.ui.components.LevelCard
 import com.example.chologo.ui.components.LocalAdCarouselBanner
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.utils.LevelSystem
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.TomorrowMatchedRequest
 import com.example.chologo.viewmodel.TomorrowRideUiState
 import com.example.chologo.viewmodel.TomorrowRideViewModel
 
-private val DashboardBg = Color(0xFF0A0D0F)
+private val DashboardBg: Color
+    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0A0D0F) else Color(0xFFF7F9FA)
 
 /** Short badge text for where one passenger's trip currently sits. */
 private fun String.passengerStatusLabel(): String {
@@ -111,6 +115,7 @@ private fun String.passengerStatusLabel(): String {
     }
 }
 
+@Composable
 private fun String.passengerStatusAccent(): Color {
     return when (this) {
         RideRequestStatus.ONGOING -> AccentBlue
@@ -153,6 +158,8 @@ fun RiderDashboardScreen(
     var isLevelLoading by remember { mutableStateOf(true) }
 
     val tomorrowDate = remember { getTomorrowDateKey() }
+
+    var tomorrowRatingTarget by remember { mutableStateOf<RideRequest?>(null) }
 
     LaunchedEffect(Unit) {
         authViewModel.loadCurrentUser()
@@ -360,6 +367,9 @@ fun RiderDashboardScreen(
                                         riderId = authState.userId
                                     )
                                 },
+                                onRatePassenger = { request ->
+                                    tomorrowRatingTarget = request
+                                },
                                 onSaveSuccess = {
                                     // Nothing to do: the ride list and the
                                     // XP total are both live listeners.
@@ -371,6 +381,27 @@ fun RiderDashboardScreen(
             }
             }
         }
+    }
+
+    val ratingTarget = tomorrowRatingTarget
+    if (ratingTarget != null) {
+        RatingDialog(
+            subject = "Passenger",
+            onDismiss = {
+                tomorrowRatingTarget = null
+            },
+            onSubmit = { stars, comment ->
+                tomorrowRideViewModel.submitTomorrowPassengerRating(
+                    request = ratingTarget,
+                    ratedBy = authState.userId,
+                    ratedTo = ratingTarget.userId,
+                    stars = stars,
+                    comment = comment
+                )
+
+                tomorrowRatingTarget = null
+            }
+        )
     }
 }
 
@@ -391,6 +422,7 @@ private fun RiderTomorrowDashboardContent(
     onCancelRide: (RideRequest, String) -> Unit,
     onStartTrip: (RideRequest) -> Unit,
     onCompleteTrip: (RideRequest) -> Unit,
+    onRatePassenger: (RideRequest) -> Unit,
     onSaveSuccess: () -> Unit
 ) {
     val context = LocalContext.current
@@ -465,7 +497,8 @@ private fun RiderTomorrowDashboardContent(
             onRemoveRide = onRemoveRide,
             onCancelRide = onCancelRide,
             onStartTrip = onStartTrip,
-            onCompleteTrip = onCompleteTrip
+            onCompleteTrip = onCompleteTrip,
+            onRatePassenger = onRatePassenger
         )
 
         RiderTomorrowSetupTab(
@@ -506,7 +539,8 @@ fun RiderRequestsTab(
     onRemoveRide: (Ride) -> Unit,
     onCancelRide: (RideRequest, String) -> Unit,
     onStartTrip: (RideRequest) -> Unit,
-    onCompleteTrip: (RideRequest) -> Unit
+    onCompleteTrip: (RideRequest) -> Unit,
+    onRatePassenger: (RideRequest) -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -574,7 +608,8 @@ fun RiderRequestsTab(
                             },
                             onCancel = { request, reason -> onCancelRide(request, reason) },
                             onStartTrip = { request -> onStartTrip(request) },
-                            onCompleteTrip = { request -> onCompleteTrip(request) }
+                            onCompleteTrip = { request -> onCompleteTrip(request) },
+                            onRatePassenger = { request -> onRatePassenger(request) }
                         )
                     }
                 }
@@ -765,7 +800,8 @@ fun SavedRideCard(
     onRemove: () -> Unit,
     onCancel: (RideRequest, String) -> Unit,
     onStartTrip: (RideRequest) -> Unit,
-    onCompleteTrip: (RideRequest) -> Unit
+    onCompleteTrip: (RideRequest) -> Unit,
+    onRatePassenger: (RideRequest) -> Unit
 ) {
     val isCampus = ride.tripDirection.equals("to_campus", ignoreCase = true)
     val accentColor = if (isCampus) AccentBlue else AccentEmerald
@@ -879,7 +915,8 @@ fun SavedRideCard(
                         isProcessing = processingRequestIds.contains(request.requestId),
                         onCancel = { reason -> onCancel(request, reason) },
                         onStartTrip = { onStartTrip(request) },
-                        onCompleteTrip = { onCompleteTrip(request) }
+                        onCompleteTrip = { onCompleteTrip(request) },
+                        onRatePassenger = { onRatePassenger(request) }
                     )
                 }
             }
@@ -918,7 +955,8 @@ private fun MatchedPassengerRow(
     isProcessing: Boolean,
     onCancel: (String) -> Unit,
     onStartTrip: () -> Unit,
-    onCompleteTrip: () -> Unit
+    onCompleteTrip: () -> Unit,
+    onRatePassenger: () -> Unit
 ) {
     var showCancelDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -965,6 +1003,14 @@ private fun MatchedPassengerRow(
                     color = TextMed,
                     fontSize = 12.sp
                 )
+
+                rememberPassengerStats(request.userId)?.let { stats ->
+                    Text(
+                        text = passengerStatsLabel(stats),
+                        color = TextMed,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             MiniBadge(
@@ -1033,10 +1079,27 @@ private fun MatchedPassengerRow(
             }
 
             RideRequestStatus.COMPLETED -> {
-                RiderTripWaitingNotice(
-                    message = "Trip completed.",
-                    accent = AccentEmerald
-                )
+                if (request.passengerRated) {
+                    RiderTripWaitingNotice(
+                        message = "Trip completed. You rated this passenger ${request.passengerRating}/5.",
+                        accent = AccentEmerald
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        RiderTripWaitingNotice(
+                            message = "Trip completed.",
+                            accent = AccentEmerald
+                        )
+
+                        RiderFullWidthActionButton(
+                            text = "Rate Passenger",
+                            icon = Icons.Default.Star,
+                            accent = AccentAmber,
+                            enabled = true,
+                            onClick = onRatePassenger
+                        )
+                    }
+                }
             }
 
             else -> {

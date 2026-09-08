@@ -40,18 +40,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chologo.data.model.VehicleType
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 
 // Same auth palette LoginScreen / SignupScreen / RoleSelectionScreen use.
-private val SteelDark  = Color(0xFF141B26)
-private val SteelMid   = Color(0xFF1C2535)
-private val SteelLight = Color(0xFF232E42)
+private val SteelDark: Color  @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF141B26) else Color(0xFFFFFFFF)
+private val SteelMid: Color   @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1C2535) else Color(0xFFF3F5F9)
+private val SteelLight: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF232E42) else Color(0xFFE7ECF3)
 
-private val Volt       = Color(0xFFB8FF35)
+private val Volt: Color       @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFB8FF35) else Color(0xFF5C7A17)
 
-private val SnowWhite  = Color(0xFFF8FAFC)
-private val Mist       = Color(0xFFB0BDD0)
-private val Fog        = Color(0xFF5A6880)
-private val Ghost      = Color(0xFF2A3548)
+private val SnowWhite: Color  @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF8FAFC) else Color(0xFF10151B)
+private val Mist: Color       @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFB0BDD0) else Color(0xFF4B5563)
+private val Fog: Color        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF5A6880) else Color(0xFF97A2AF)
+private val Ghost: Color      @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF2A3548) else Color(0xFFD8DEE6)
 
 /**
  * The vehicle half of a rider's profile, shared by the email signup form and

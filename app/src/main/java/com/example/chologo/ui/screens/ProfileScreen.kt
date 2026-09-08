@@ -25,8 +25,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
@@ -43,6 +45,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,48 +62,57 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.chologo.ui.theme.ThemeController
 
 import com.example.chologo.data.model.User
 import com.example.chologo.data.model.VehicleType
 import com.example.chologo.navigation.Screen
 import com.example.chologo.repository.UserRepository
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.google.firebase.auth.FirebaseAuth
 
 // ─── Theme Tokens matching previous screens ──────────────────────────────────
 
-private val BgDeep        = Color(0xFF080C10)
-private val BgSurface     = Color(0xFF0E1318)
-private val CardBase      = Color(0xFF141A21)
-private val CardElevated  = Color(0xFF1A2130)
-private val CardGlass     = Color(0xFF1E2736)
+private val BgDeep: Color        @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF080C10) else Color(0xFFF7F9FA)
+private val BgSurface: Color     @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0E1318) else Color(0xFFEFF2F5)
+private val CardBase: Color      @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF141A21) else Color(0xFFFFFFFF)
+private val CardElevated: Color  @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1A2130) else Color(0xFFF1F4F7)
+private val CardGlass: Color     @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1E2736) else Color(0xFFE8EEF3)
 
-private val Lime          = Color(0xFF9FD63F)
-private val LimeDeep      = Color(0xFF6FAF1A)
-private val LimeDim       = Color(0xFF2A3E18)
+private val Lime: Color          @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF9FD63F) else Color(0xFF5E7A17)
+private val LimeDeep: Color      @Composable get() = Color(0xFF6FAF1A)
+private val LimeDim: Color       @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF2A3E18) else Color(0xFFDCEBC7)
 
-private val AccentBlue    = Color(0xFF4D9FFF)
-private val AccentEmerald = Color(0xFF30D878)
-private val AccentRed     = Color(0xFFFF5461)
+private val AccentBlue: Color    @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF4D9FFF) else Color(0xFF1D6FE0)
+private val AccentEmerald: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF30D878) else Color(0xFF0E9A6B)
+private val AccentRed: Color     @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFFF5461) else Color(0xFFC81E3A)
 
-private val TextHigh      = Color(0xFFF0F4F8)
-private val TextMed       = Color(0xFF8B9AB0)
-private val TextLow       = Color(0xFF4A5568)
+private val TextHigh: Color      @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF0F4F8) else Color(0xFF10151B)
+private val TextMed: Color       @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8B9AB0) else Color(0xFF4B5563)
+private val TextLow: Color       @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF4A5568) else Color(0xFF98A2AE)
 
-private val BorderSubtle  = Color(0xFF1E2D3D)
-private val BorderFocus   = Color(0xFF2D4060)
+private val BorderSubtle: Color  @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1E2D3D) else Color(0xFFDDE3EA)
+private val BorderFocus: Color   @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF2D4060) else Color(0xFFC7D2DE)
 
-private val GradientLime  = Brush.linearGradient(listOf(Lime, Color(0xFF6FBA2A)))
-private val GradientHero  = Brush.linearGradient(
-    listOf(Color(0xFF1A2233), Color(0xFF101620))
-)
-private val GradientDanger = Brush.linearGradient(
-    listOf(Color(0xFF40202A), Color(0xFF241015))
-)
+private val GradientLime: Brush  @Composable get() = Brush.linearGradient(listOf(Lime, if (LocalIsDarkTheme.current) Color(0xFF6FBA2A) else Color(0xFF4C6412)))
+private val GradientHero: Brush
+    @Composable get() = if (LocalIsDarkTheme.current) {
+        Brush.linearGradient(listOf(Color(0xFF1A2233), Color(0xFF101620)))
+    } else {
+        Brush.linearGradient(listOf(Color(0xFFEDF1F7), Color(0xFFF7F9FB)))
+    }
+private val GradientDanger: Brush
+    @Composable get() = if (LocalIsDarkTheme.current) {
+        Brush.linearGradient(listOf(Color(0xFF40202A), Color(0xFF241015)))
+    } else {
+        Brush.linearGradient(listOf(Color(0xFFFBE7EA), Color(0xFFFDF3F4)))
+    }
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
@@ -267,6 +280,14 @@ fun ProfileScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            SectionLabel(text = "Appearance")
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            AppearanceCard()
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             LogoutCard(
                 onLogout = {
                     auth.signOut()
@@ -338,6 +359,11 @@ private fun ProfileHeroCard(
     role: String,
     isLoading: Boolean
 ) {
+    // drawBehind runs at draw time, outside composition, so the themed
+    // brush it reads must be a plain value captured here rather than a
+    // @Composable property read inside the lambda.
+    val gradientLime = GradientLime
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -360,7 +386,7 @@ private fun ProfileHeroCard(
                         .size(86.dp)
                         .drawBehind {
                             drawCircle(
-                                brush = GradientLime,
+                                brush = gradientLime,
                                 radius = size.minDimension / 2f
                             )
                         }
@@ -458,6 +484,74 @@ private fun ProfileInfoCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+        }
+    }
+}
+
+// ─── Appearance ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun AppearanceCard() {
+    val context = LocalContext.current
+    val isDark = ThemeController.isDarkTheme
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBase),
+        border = BorderStroke(1.dp, BorderSubtle)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(CardGlass),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isDark) Icons.Default.DarkMode else Icons.Default.LightMode,
+                    contentDescription = null,
+                    tint = Lime,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Dark mode",
+                    color = TextMed,
+                    fontSize = 12.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = if (isDark) "On" else "Off",
+                    color = TextHigh,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp
+                )
+            }
+
+            Switch(
+                checked = isDark,
+                onCheckedChange = { checked ->
+                    ThemeController.setDarkTheme(context, checked)
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Lime,
+                    checkedTrackColor = LimeDim,
+                    checkedBorderColor = Color.Transparent
+                )
+            )
         }
     }
 }

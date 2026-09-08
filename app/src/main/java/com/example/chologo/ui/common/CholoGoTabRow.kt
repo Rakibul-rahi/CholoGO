@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 
 @Composable
 fun CholoGoTabRow(
@@ -29,12 +30,13 @@ fun CholoGoTabRow(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bgCard = Color(0xFF161B20)
-    val bgElevated = Color(0xFF1C2228)
-    val lime = Color(0xFFC6F135)
-    val emerald = Color(0xFF34D399)
-    val textLow = Color(0xFF4E5A66)
-    val border = Color.White.copy(alpha = 0.07f)
+    val isDark = LocalIsDarkTheme.current
+    val bgCard = if (isDark) Color(0xFF161B20) else Color(0xFFFFFFFF)
+    val bgElevated = if (isDark) Color(0xFF1C2228) else Color(0xFFF1F4F7)
+    val lime = if (isDark) Color(0xFFC6F135) else Color(0xFF5E7A17)
+    val emerald = if (isDark) Color(0xFF34D399) else Color(0xFF0E9A6B)
+    val textLow = if (isDark) Color(0xFF4E5A66) else Color(0xFF98A2AE)
+    val border = if (isDark) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.08f)
     val borderFocus = lime.copy(alpha = 0.35f)
 
     Row(

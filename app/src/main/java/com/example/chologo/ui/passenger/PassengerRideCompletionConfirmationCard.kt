@@ -48,6 +48,13 @@ fun PassengerRideCompletionConfirmationCard(
                 style = MaterialTheme.typography.titleMedium
             )
 
+            rememberRiderStats(request.matchedRiderId)?.let { stats ->
+                Text(
+                    text = riderStatsLabel(stats),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
             // Ride info
             Text("Pickup: ${request.pickup}")
 

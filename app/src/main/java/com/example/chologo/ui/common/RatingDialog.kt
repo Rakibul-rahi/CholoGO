@@ -12,18 +12,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 
-private val DialogSurface = Color(0xFF161B20)
-private val TextHigh = Color(0xFFF1F5F9)
-private val TextMed = Color(0xFF8B96A5)
-private val Lime = Color(0xFFC6F135)
-private val BgDeep = Color(0xFF0A0D0F)
-private val FieldBorder = Color(0xFF2A3548)
+private val DialogSurface: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF161B20) else Color(0xFFFFFFFF)
+private val TextHigh: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF1F5F9) else Color(0xFF10151B)
+private val TextMed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8B96A5) else Color(0xFF4B5563)
+private val Lime: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFC6F135) else Color(0xFF5E7A17)
+private val BgDeep: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF0A0D0F) else Color(0xFFF7F9FA)
+private val FieldBorder: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF2A3548) else Color(0xFFD3D9E0)
 
 @Composable
 fun RatingDialog(
     onDismiss: () -> Unit,
-    onSubmit: (Int, String) -> Unit
+    onSubmit: (Int, String) -> Unit,
+    subject: String = "Rider"
 ) {
     var rating by remember { mutableIntStateOf(5) }
     var comment by remember { mutableStateOf("") }
@@ -33,14 +35,14 @@ fun RatingDialog(
         containerColor = DialogSurface,
         shape = RoundedCornerShape(22.dp),
         title = {
-            Text("Rate Your Rider", color = TextHigh, fontWeight = FontWeight.Bold)
+            Text("Rate Your $subject", color = TextHigh, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    "How was the ride? Your rating helps other students pick a good rider.",
+                    "How was the ride? Your rating helps other students know what to expect from this $subject.",
                     color = TextMed,
                     fontSize = 13.sp
                 )

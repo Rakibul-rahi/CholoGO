@@ -131,17 +131,40 @@ service cloud.firestore {
           && sharesRideWith(evidenceId, userId);
       }
 
+      // Backs RideNowRequestRepository.passengerConfirmRideNowCompleted()
+      // and Tomorrowriderrepository.passengerConfirmTripCompleted(): the
+      // passenger confirming a trip bumps the matched rider's
+      // completedRideCount by exactly one. Evidence-gated the same way as
+      // the rating/report bumps above - without lastCompletedRideEvidenceId
+      // naming a real ride matching myUid() to userId, any signed-in user
+      // could inflate a rider's completed-ride count with no ride ever
+      // shared between them.
+      function isValidCompletedRideBump() {
+        let oldCount = resource.data.get('completedRideCount', 0);
+        let newCount = request.resource.data.get('completedRideCount', 0);
+        let evidenceId = request.resource.data.get('lastCompletedRideEvidenceId', '');
+
+        return signedIn()
+          && userId != myUid()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["completedRideCount", "lastCompletedRideEvidenceId"])
+          && newCount == oldCount + 1
+          && evidenceId is string && evidenceId.size() > 0
+          && sharesRideWith(evidenceId, userId);
+      }
+
       // A fresh profile starts with a clean slate - role must be a real
       // role (never escalated straight from the client to something else),
       // and every earned counter starts at zero. Without this, deleting and
       // recreating a profile would bypass every guard above (role can never
-      // change via update, ratings/reports can only move by exactly one via
-      // isValidRatingBump()/isValidReportBump()) in a single create call.
+      // change via update, and every counter above can only move by exactly
+      // one, evidence-gated) in a single create call.
       function freshProfile() {
         return request.resource.data.role in ["rider", "passenger"]
           && request.resource.data.get('ratingAverage', 0) == 0
           && request.resource.data.get('ratingCount', 0) == 0
-          && request.resource.data.get('reportCount', 0) == 0;
+          && request.resource.data.get('reportCount', 0) == 0
+          && request.resource.data.get('completedRideCount', 0) == 0;
       }
 
       allow create: if isOwner(userId) && freshProfile();
@@ -150,7 +173,8 @@ service cloud.firestore {
 
       allow update: if ownerProfileEdit()
         || isValidRatingBump()
-        || isValidReportBump();
+        || isValidReportBump()
+        || isValidCompletedRideBump();
 
       // No direct client delete: every guard above only fires on update,
       // so a delete+recreate would otherwise be a free way to erase
@@ -416,6 +440,24 @@ service cloud.firestore {
             .hasOnly(["issueReported", "reportReason", "reportDetails", "reportedAt"]);
       }
 
+      // TomorrowFeedbackRepository.submitPassengerRating(): only the
+      // matched rider, one star rating, one time - the mirror of
+      // passengerSubmitRating above, rating the passenger instead of the
+      // rider. get()'d with a default since "passengerRated" doesn't exist
+      // on legs saved before this field did.
+      function riderSubmitRating() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.get('passengerRated', false) == false
+          && resource.data.get('issueReported', false) == false
+          && request.resource.data.passengerRated == true
+          && request.resource.data.passengerRating is int
+          && request.resource.data.passengerRating >= 1
+          && request.resource.data.passengerRating <= 5
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["passengerRated", "passengerRating", "passengerRatedAt"]);
+      }
+
       allow create: if isPassenger()
         && request.resource.data.userId == myUid()
         && request.resource.data.status == "pending";
@@ -445,7 +487,8 @@ service cloud.firestore {
         || passengerRetroAnswer()
         || riderRetroAnswer()
         || passengerSubmitRating()
-        || passengerSubmitReport();
+        || passengerSubmitReport()
+        || riderSubmitRating();
 
       // Deleting an already-accepted request would orphan the rider's seat
       // count with nothing to ever restore it. Block until a proper
@@ -739,6 +782,24 @@ service cloud.firestore {
             .hasOnly(["issueReported", "reportReason", "reportDetails", "reportedAt"]);
       }
 
+      // submitPassengerRating(): only the matched rider, one star rating,
+      // one time - the mirror of passengerSubmitRating above, rating the
+      // passenger instead of the rider. get()'d with a default since
+      // "passengerRated" doesn't exist on trips saved before this field
+      // did.
+      function riderSubmitRating() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.get('passengerRated', false) == false
+          && resource.data.get('issueReported', false) == false
+          && request.resource.data.passengerRated == true
+          && request.resource.data.passengerRating is int
+          && request.resource.data.passengerRating >= 1
+          && request.resource.data.passengerRating <= 5
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["passengerRated", "passengerRating", "passengerRatedAt"]);
+      }
+
       allow create: if passengerCreate();
 
       allow read: if
@@ -758,7 +819,8 @@ service cloud.firestore {
         || passengerConfirmCompletion()
         || passengerReportIssue()
         || passengerSubmitRating()
-        || passengerSubmitReport();
+        || passengerSubmitReport()
+        || riderSubmitRating();
 
       allow delete: if isPassenger()
         && resource.data.passengerId == myUid()

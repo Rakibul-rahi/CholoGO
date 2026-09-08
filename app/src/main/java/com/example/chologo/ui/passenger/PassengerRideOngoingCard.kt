@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -98,6 +99,11 @@ fun PassengerRideOngoingCard(
             Icons.Default.Person,
             request.matchedRiderName.ifBlank { "Your rider" }
         )
+
+        rememberRiderStats(request.matchedRiderId)?.let { stats ->
+            Spacer(modifier = Modifier.height(8.dp))
+            RideMetaRow(Icons.Default.Star, riderStatsLabel(stats))
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 

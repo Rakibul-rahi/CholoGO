@@ -82,6 +82,13 @@ fun PassengerRideCompletedCard(
                     fontWeight = FontWeight.SemiBold
                 )
 
+                rememberRiderStats(request.matchedRiderId)?.let { stats ->
+                    Text(
+                        text = riderStatsLabel(stats),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
                 Text(text = "Pickup: ${request.pickup}")
                 Text(text = "Destination: ${request.destination}")
                 Text(text = "Time: ${request.tripTime}")

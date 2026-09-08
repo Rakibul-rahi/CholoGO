@@ -33,5 +33,13 @@ data class User(
     val ratingAverage: Double = 0.0,
     val ratingCount: Int = 0,
     val reportCount: Int = 0,
+
+    // Rider-only. Bumped by exactly one each time a passenger confirms a
+    // trip matched to this rider as completed - see
+    // RideNowRequestRepository.passengerConfirmRideNowCompleted and
+    // Tomorrowriderrepository.passengerConfirmTripCompleted. Shown to
+    // passengers alongside the rider's rating so "no ratings yet" and "no
+    // rides yet" read as different things.
+    val completedRideCount: Int = 0,
     val fcmTokens: List<String> = emptyList()
 )

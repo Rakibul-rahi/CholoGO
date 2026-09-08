@@ -22,19 +22,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.google.firebase.auth.FirebaseAuth
 
 // 🎨 Colors (same theme as your LoginScreen)
-private val BgDeep = Color(0xFF080C10)
-private val CardBase = Color(0xFF141A21)
-private val CardElevated = Color(0xFF1A2130)
-private val Lime = Color(0xFF9FD63F)
-private val LimeDeep = Color(0xFF6FAF1A)
-private val TextHigh = Color(0xFFF0F4F8)
-private val TextMed = Color(0xFF8B9AB0)
-private val TextLow = Color(0xFF4A5568)
+private val BgDeep: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF080C10) else Color(0xFFF7F9FA)
+private val CardBase: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF141A21) else Color(0xFFFFFFFF)
+private val CardElevated: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF1A2130) else Color(0xFFF1F4F7)
+private val Lime: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF9FD63F) else Color(0xFF5E7A17)
+private val LimeDeep: Color @Composable get() = Color(0xFF6FAF1A)
+private val TextHigh: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFFF0F4F8) else Color(0xFF10151B)
+private val TextMed: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF8B9AB0) else Color(0xFF4B5563)
+private val TextLow: Color @Composable get() = if (LocalIsDarkTheme.current) Color(0xFF4A5568) else Color(0xFF98A2AE)
 
-private val GradientLime = Brush.linearGradient(listOf(Lime, LimeDeep))
+private val GradientLime: Brush @Composable get() = Brush.linearGradient(listOf(Lime, LimeDeep))
 
 @Composable
 fun ForgotPasswordScreen(

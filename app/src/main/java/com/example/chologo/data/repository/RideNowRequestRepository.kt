@@ -7,6 +7,7 @@ import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.data.model.VehicleType
 import com.example.chologo.data.model.isAbandoned
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -19,6 +20,7 @@ class RideNowRequestRepository(
     private val liveRidesRef = db.collection("live_rides")
     private val rideNowRequestsRef = db.collection("ride_now_requests")
     private val rideHistoryRef = db.collection("ride_history")
+    private val usersRef = db.collection("users")
 
     suspend fun createRideNowRequest(request: RideNowRequest): Result<String> {
         return try {
@@ -508,6 +510,19 @@ class RideNowRequestRepository(
                         "lastUpdatedAt" to completedAt
                     )
                 )
+
+                if (request.matchedRiderId.isNotBlank()) {
+                    transaction.update(
+                        usersRef.document(request.matchedRiderId),
+                        mapOf(
+                            "completedRideCount" to FieldValue.increment(1),
+                            // Lets firestore.rules' isValidCompletedRideBump()
+                            // verify this bump against a real ride tying the
+                            // passenger to the rider being credited.
+                            "lastCompletedRideEvidenceId" to requestId
+                        )
+                    )
+                }
             }.await()
 
             val completedRequest = getRideNowRequestById(requestId)
