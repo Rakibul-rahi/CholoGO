@@ -48,8 +48,8 @@
   --color-accent-emerald: var(--color-accent-emerald);
   --color-accent-amber: var(--color-accent-amber);
   --color-accent-red: var(--color-accent-red);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-dm-sans);
+  --font-heading: var(--font-syne);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -81,5 +81,15 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 800;
 }
