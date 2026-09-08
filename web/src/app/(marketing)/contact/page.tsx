@@ -8,7 +8,12 @@ export default function ContactPage() {
         Questions, feedback, or support requests — reach out and we&apos;ll
         get back to you.
       </p>
-      <p className="mt-8 text-lg font-medium">support@cholo-go.example</p>
+      <a
+        href="mailto:rakibulislam.rahi.rir@gmail.com"
+        className="mt-8 block text-lg font-medium text-accent hover:underline"
+      >
+        rakibulislam.rahi.rir@gmail.com
+      </a>
     </div>
   );
 }
