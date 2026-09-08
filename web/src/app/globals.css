@@ -98,6 +98,25 @@ body {
   font-family: var(--font-sans), sans-serif;
 }
 
+/*
+ * Belt-and-suspenders on top of color-scheme above: forces every <select>'s
+ * closed state AND its <option> popup rows to the same tokens the rest of
+ * the page uses, instead of leaving the popup's colors to browser/OS
+ * inference. color-scheme alone should be enough in an up to date browser,
+ * but it's inferred, not guaranteed - an explicit color/background-color
+ * here is directly honored by every major browser's native <option>
+ * rendering, so the dropdown can't end up light-on-light again regardless
+ * of how any particular browser resolves color-scheme.
+ */
+select {
+  color: var(--foreground);
+}
+
+select option {
+  background-color: var(--color-card);
+  color: var(--foreground);
+}
+
 h1,
 h2,
 h3,

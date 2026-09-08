@@ -1039,6 +1039,31 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------- Suggestion box ----------
+    // Public feedback form on the marketing site's Contact page. No signed-
+    // in check on purpose: this site explicitly lets people browse and act
+    // before creating an account (see notes elsewhere on that), and asking
+    // for a suggestion is not something worth gating behind a login. Write-
+    // only from the client - nobody, not even the submitter, can read,
+    // edit, or delete a suggestion back; these are reviewed from the
+    // Firebase console.
+    match /suggestions/{suggestionId} {
+      allow create: if request.resource.data.keys()
+          .hasOnly(["message", "name", "contact", "createdAt"])
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 2000
+        && request.resource.data.get('name', '') is string
+        && request.resource.data.get('name', '').size() <= 200
+        && request.resource.data.get('contact', '') is string
+        && request.resource.data.get('contact', '').size() <= 200
+        && request.resource.data.createdAt is timestamp;
+
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
     // ---------- In-app notifications ----------
     // Written only by the standalone REST server via the Admin SDK
     // (which bypasses these rules entirely) - e.g. when the cancellation
