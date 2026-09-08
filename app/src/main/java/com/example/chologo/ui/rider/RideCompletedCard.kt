@@ -175,6 +175,50 @@ fun RideCompletedCard(
                 //-----------------------------------
 
                 if (isRider) {
+                    // What the passenger rated ME - real data only. Shown
+                    // conditionally on riderRated rather than unconditional
+                    // stars, since the instant this card first renders
+                    // (status just became COMPLETED) the passenger hasn't
+                    // had a chance to rate yet, and request.rating is still
+                    // its unset default.
+                    if (request.riderRated) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            repeat(5) { index ->
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = if (index < request.rating) {
+                                        AccentAmber
+                                    } else {
+                                        AccentAmber.copy(alpha = 0.25f)
+                                    },
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Passenger rated you ${request.rating}⭐",
+                            color = TextMed,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Text(
+                            text = "Waiting for the passenger to rate this trip.",
+                            color = TextMed,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // My own rating of the passenger - a separate,
+                    // independent rating in the other direction.
                     if (request.passengerRated) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -238,7 +282,7 @@ fun RideCompletedCard(
 
                 Text(
                     text = if (isRider) {
-                        "You are now available to receive new Ride Now requests."
+                        "Trip closed. Tap \"Go Live\" whenever you're ready for your next Ride Now request."
                     } else {
                         "You saved 65 Tk compared to traditional ride sharing."
                     },

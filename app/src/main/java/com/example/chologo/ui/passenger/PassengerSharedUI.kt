@@ -73,6 +73,7 @@ import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.repository.UserRepository
 import com.example.chologo.ui.components.LevelCard
+import com.example.chologo.ui.rider.getTomorrowDateKey
 import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.utils.Greeting
 import com.example.chologo.utils.LevelInfo
@@ -1609,11 +1610,9 @@ fun getTodayDateKey(): String {
         .format(Calendar.getInstance().time)
 }
 
-fun getTomorrowDateKey(): String {
-    val calendar = Calendar.getInstance()
-    calendar.add(Calendar.DAY_OF_YEAR, 1)
-    return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calendar.time)
-}
+// getTomorrowDateKey() lives in ui.rider.RiderSharedUI and is imported
+// above - both sides must share the exact same cutover logic (see its doc
+// comment), so there is deliberately only one implementation.
 
 fun formatTimestampToDate(timestamp: Timestamp): String {
     return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(timestamp.toDate())

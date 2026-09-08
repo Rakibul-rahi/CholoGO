@@ -31,6 +31,28 @@ service cloud.firestore {
       return signedIn() && myRole() == "rider";
     }
 
+    // Evidence that myUid() actually shares a matched ride with otherUid,
+    // on whichever flow requestId belongs to. Mirrors the reasoning the
+    // xp_events ledger already uses: a counter bump (or a rating/report
+    // row) is only as trustworthy as the real document backing it, so this
+    // reads the ride itself rather than trusting the uids the client hands
+    // over. Declared at the top level so both the users/{userId} rating
+    // bump and the ride_ratings/ride_reports create rules can use it.
+    function sharesRideWith(requestId, otherUid) {
+      return
+        (
+          exists(/databases/$(database)/documents/ride_now_requests/$(requestId))
+          && get(/databases/$(database)/documents/ride_now_requests/$(requestId)).data.passengerId == myUid()
+          && get(/databases/$(database)/documents/ride_now_requests/$(requestId)).data.matchedRiderId == otherUid
+        )
+        ||
+        (
+          exists(/databases/$(database)/documents/ride_requests/$(requestId))
+          && get(/databases/$(database)/documents/ride_requests/$(requestId)).data.userId == myUid()
+          && get(/databases/$(database)/documents/ride_requests/$(requestId)).data.matchedRiderId == otherUid
+        );
+    }
+
     match /users/{userId} {
 
       // The owner may edit their own profile fields, but never the fields
@@ -61,12 +83,16 @@ service cloud.firestore {
             ]);
       }
 
-      // Backs RideNowFeedbackRepository.submitRideRating(): a rating from
-      // someone else bumps ratingCount by exactly one and moves the average
-      // by an amount consistent with a single new 1-5 star vote (a small
-      // epsilon absorbs floating point round-trip noise between the
-      // client's math and this recomputation - it does not widen how much
-      // a single rating can move the average). Nobody may rate themselves.
+      // Backs RideNowFeedbackRepository/TomorrowFeedbackRepository
+      // .submitRideRating(): a rating from someone else bumps ratingCount by
+      // exactly one and moves the average by an amount consistent with a
+      // single new 1-5 star vote (a small epsilon absorbs floating point
+      // round-trip noise between the client's math and this recomputation -
+      // it does not widen how much a single rating can move the average).
+      // Nobody may rate themselves, and lastRatingEvidenceId must name a
+      // real ride matching myUid() to userId - without it, any signed-in
+      // user could inflate or tank anyone else's rating with no ride ever
+      // shared between them.
       function isValidRatingBump() {
         let oldCount = resource.data.get('ratingCount', 0);
         let oldAvg = resource.data.get('ratingAverage', 0);
@@ -74,47 +100,74 @@ service cloud.firestore {
         let newAvg = request.resource.data.get('ratingAverage', 0);
         let oldTotal = oldAvg * oldCount;
         let newTotal = newAvg * newCount;
+        let evidenceId = request.resource.data.get('lastRatingEvidenceId', '');
 
         return signedIn()
           && userId != myUid()
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["ratingAverage", "ratingCount"])
+            .hasOnly(["ratingAverage", "ratingCount", "lastRatingEvidenceId"])
           && newCount == oldCount + 1
           && newTotal >= oldTotal + 1 - 0.05
-          && newTotal <= oldTotal + 5 + 0.05;
+          && newTotal <= oldTotal + 5 + 0.05
+          && evidenceId is string && evidenceId.size() > 0
+          && sharesRideWith(evidenceId, userId);
       }
 
-      // Backs RideNowFeedbackRepository.submitRideReport(): a report from
-      // someone else bumps reportCount by exactly one. Nobody may report
-      // themselves.
+      // Backs RideNowFeedbackRepository/TomorrowFeedbackRepository
+      // .submitRideReport(): a report from someone else bumps reportCount by
+      // exactly one. Nobody may report themselves, and lastReportEvidenceId
+      // is evidence-checked the same way as a rating.
       function isValidReportBump() {
         let oldReportCount = resource.data.get('reportCount', 0);
         let newReportCount = request.resource.data.get('reportCount', 0);
+        let evidenceId = request.resource.data.get('lastReportEvidenceId', '');
 
         return signedIn()
           && userId != myUid()
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["reportCount"])
-          && newReportCount == oldReportCount + 1;
+            .hasOnly(["reportCount", "lastReportEvidenceId"])
+          && newReportCount == oldReportCount + 1
+          && evidenceId is string && evidenceId.size() > 0
+          && sharesRideWith(evidenceId, userId);
       }
 
       // Backs RideNowRequestRepository.passengerConfirmRideNowCompleted()
       // and Tomorrowriderrepository.passengerConfirmTripCompleted(): the
       // passenger confirming a trip bumps the matched rider's
-      // completedRideCount by exactly one, same shape as the rating/report
-      // bumps above.
+      // completedRideCount by exactly one. Evidence-gated the same way as
+      // the rating/report bumps above - without lastCompletedRideEvidenceId
+      // naming a real ride matching myUid() to userId, any signed-in user
+      // could inflate a rider's completed-ride count with no ride ever
+      // shared between them.
       function isValidCompletedRideBump() {
         let oldCount = resource.data.get('completedRideCount', 0);
         let newCount = request.resource.data.get('completedRideCount', 0);
+        let evidenceId = request.resource.data.get('lastCompletedRideEvidenceId', '');
 
         return signedIn()
           && userId != myUid()
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["completedRideCount"])
-          && newCount == oldCount + 1;
+            .hasOnly(["completedRideCount", "lastCompletedRideEvidenceId"])
+          && newCount == oldCount + 1
+          && evidenceId is string && evidenceId.size() > 0
+          && sharesRideWith(evidenceId, userId);
       }
 
-      allow create: if isOwner(userId);
+      // A fresh profile starts with a clean slate - role must be a real
+      // role (never escalated straight from the client to something else),
+      // and every earned counter starts at zero. Without this, deleting and
+      // recreating a profile would bypass every guard above (role can never
+      // change via update, and every counter above can only move by exactly
+      // one, evidence-gated) in a single create call.
+      function freshProfile() {
+        return request.resource.data.role in ["rider", "passenger"]
+          && request.resource.data.get('ratingAverage', 0) == 0
+          && request.resource.data.get('ratingCount', 0) == 0
+          && request.resource.data.get('reportCount', 0) == 0
+          && request.resource.data.get('completedRideCount', 0) == 0;
+      }
+
+      allow create: if isOwner(userId) && freshProfile();
 
       allow read: if signedIn();
 
@@ -123,7 +176,12 @@ service cloud.firestore {
         || isValidReportBump()
         || isValidCompletedRideBump();
 
-      allow delete: if isOwner(userId);
+      // No direct client delete: every guard above only fires on update,
+      // so a delete+recreate would otherwise be a free way to erase
+      // accumulated reports or a low rating. Account deletion, if ever
+      // needed, belongs behind the admin-privileged REST server like
+      // Tomorrow's cancellation flow, not a client rule.
+      allow delete: if false;
     }
 
     // ---------- Tomorrow flow: passenger-side pre-scheduled requests ----------
@@ -154,12 +212,24 @@ service cloud.firestore {
       }
 
       // A rider may add themselves to rejectedByRiderIds (decline) without
-      // touching status or any matched* field.
+      // touching status or any matched* field. Only reachable while still
+      // "pending" and only appending exactly one id - both closed to keep
+      // this from being usable to silently touch a request's other fields
+      // (rating, pickup/destination, etc.) on a ride the rider was never
+      // matched to.
       function riderDeclineOnly() {
         return isRider()
+          && resource.data.status == "pending"
           && request.resource.data.rejectedByRiderIds.hasAll(resource.data.rejectedByRiderIds)
+          // Whatever this write adds to the array (an arrayUnion() no-op
+          // included, in case of a retried call) may only be myUid() -
+          // never anyone else's id.
+          && request.resource.data.rejectedByRiderIds
+            .removeAll(resource.data.rejectedByRiderIds).hasOnly([myUid()])
           && request.resource.data.status == resource.data.status
-          && request.resource.data.matchedRiderId == resource.data.matchedRiderId;
+          && request.resource.data.matchedRiderId == resource.data.matchedRiderId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["rejectedByRiderIds"]);
       }
 
       // A rider may accept a still-pending request, but only by matching
@@ -169,7 +239,15 @@ service cloud.firestore {
         return isRider()
           && resource.data.status == "pending"
           && request.resource.data.status == "accepted"
-          && request.resource.data.matchedRiderId == myUid();
+          && request.resource.data.matchedRiderId == myUid()
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              "status", "matchedRideId", "matchedRiderId", "matchedRiderName",
+              "matchedRiderPhone", "matchedRideTime", "acceptedAt",
+              "matchedVehicleType", "matchedVehicleModel",
+              "matchedVehicleNumber", "matchedVehicleColor"
+            ]);
       }
 
       // A rider may cancel a request already matched to them. Both
@@ -182,7 +260,9 @@ service cloud.firestore {
           && resource.data.status == "accepted"
           && resource.data.matchedRiderId == myUid()
           && request.resource.data.status == "cancelled"
-          && request.resource.data.matchedRiderId == resource.data.matchedRiderId;
+          && request.resource.data.matchedRiderId == resource.data.matchedRiderId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "cancelledBy", "cancelledByRole", "cancellationReason", "cancelledAt"]);
       }
 
       // ---------- Trip lifecycle (mirrors ride_now_requests) ----------
@@ -235,6 +315,34 @@ service cloud.firestore {
           && request.resource.data.status == "completed"
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(["status", "rideCompletedByPassenger", "completedAt"]);
+      }
+
+      // ---------- Rider abandonment escape hatches ----------
+      // Mirrors ride_now_requests' riderCancelUnstarted()/
+      // riderCloseUnconfirmed() below: without these, a Tomorrow leg that's
+      // passed ACCEPTED has no way out for either side except waiting out
+      // the full missed-ride grace window, even when it's obvious to the
+      // rider that the passenger isn't coming or isn't answering.
+
+      // riderCancelUnstartedTrip(): the passenger never got on.
+      function riderCancelUnstarted() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.status == "start_pending_confirmation"
+          && request.resource.data.status == "cancelled"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "cancelledBy", "cancelledByRole", "cancellationReason", "cancelledAt"]);
+      }
+
+      // riderCloseUnconfirmedTrip(): the trip was really driven, but only
+      // the rider ever said so - "unverified", never "completed".
+      function riderCloseUnconfirmed() {
+        return isRider()
+          && resource.data.matchedRiderId == myUid()
+          && resource.data.status in ["ongoing", "end_pending_confirmation"]
+          && request.resource.data.status == "unverified"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "closedByRole", "closedAt"]);
       }
 
       // ---------- Missed-trip reconciliation ----------
@@ -374,6 +482,8 @@ service cloud.firestore {
         || passengerRejectStart()
         || riderRequestCompletion()
         || passengerConfirmCompletion()
+        || riderCancelUnstarted()
+        || riderCloseUnconfirmed()
         || passengerRetroAnswer()
         || riderRetroAnswer()
         || passengerSubmitRating()
@@ -432,6 +542,12 @@ service cloud.firestore {
         || isPassenger()
         || (resource.data.status == "active" && resource.data.liveNow == true);
 
+      // The passenger branch only ever frees a ride, never claims or edits
+      // one - and only the passenger it's currently matched to may do it.
+      // Without the currentRequestId/matchedRiderId check below, any
+      // passenger could hijack or corrupt an unrelated rider's document
+      // (including one that's mid-trip) by writing available=true,
+      // currentRequestId="" straight from the client.
       allow update: if
         (
           isRider()
@@ -440,8 +556,12 @@ service cloud.firestore {
         ||
         (
           isPassenger()
+          && resource.data.currentRequestId != ""
+          && get(/databases/$(database)/documents/ride_now_requests/$(resource.data.currentRequestId)).data.passengerId == myUid()
           && request.resource.data.available == true
           && request.resource.data.currentRequestId == ""
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "available", "liveNow", "currentRequestId", "lastUpdatedAt"])
         );
 
       allow delete: if isRider()
@@ -479,12 +599,17 @@ service cloud.firestore {
       }
 
       // cancelAcceptedRideNowTrip(): passenger backs out of an already
-      // matched trip.
+      // matched trip, but only before it's actually under way - once the
+      // rider has started driving (ONGOING) or is waiting on completion
+      // confirmation (END_PENDING_CONFIRMATION), the ride already happened
+      // and a passenger cancel at that point would just race and silently
+      // discard the rider's own progress, or let a passenger dodge a
+      // rating/no-show consequence after the fact. Backing out that late
+      // goes through the rider's own escape hatches below instead.
       function passengerCancelAccepted() {
         return isPassenger()
           && resource.data.passengerId == myUid()
-          && resource.data.status in
-            ["accepted", "start_pending_confirmation", "ongoing", "end_pending_confirmation"]
+          && resource.data.status in ["accepted", "start_pending_confirmation"]
           && request.resource.data.status == "cancelled"
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(["status", "cancelledAt"]);
@@ -492,20 +617,27 @@ service cloud.firestore {
 
       // expireRequestIfNeeded(): either side can flip a stale, still-unmatched
       // request to expired - a rider triggers it while browsing the matching
-      // list, the passenger while watching their own request.
+      // list, the passenger while watching their own request. Gated on
+      // request.time being past the request's own expiresAt so this can't
+      // be used to kill a fresh, still-live search out from under its owner.
       function expireSearching() {
         return (isRider() || (isPassenger() && resource.data.passengerId == myUid()))
           && resource.data.status == "searching"
+          && resource.data.expiresAt is timestamp
+          && request.time > resource.data.expiresAt
           && request.resource.data.status == "expired"
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(["status", "expiredAt"]);
       }
 
       // acceptRideNowRequest(): a rider may match a still-searching request
-      // only to themselves.
+      // only to themselves, and only before it's expired - without the
+      // expiresAt check, a rider could accept a request long after even a
+      // correctly-clocked passenger would consider it dead.
       function riderAccept() {
         return isRider()
           && resource.data.status == "searching"
+          && (resource.data.expiresAt is timestamp ? request.time <= resource.data.expiresAt : true)
           && request.resource.data.status == "accepted"
           && request.resource.data.matchedRiderId == myUid()
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -521,14 +653,21 @@ service cloud.firestore {
             ]);
       }
 
-      // riderStartRideNowTrip(): only the matched rider.
+      // riderStartRideNowTrip(): only the matched rider. statusEnteredAt
+      // records when this pending-confirmation phase actually began, so the
+      // rider's force-close grace period (RideNowRequest.riderMayForceClose)
+      // measures from here rather than falling back to the stale
+      // acceptedAt from a potentially much earlier phase.
       function riderStart() {
         return isRider()
           && resource.data.status == "accepted"
           && resource.data.matchedRiderId == myUid()
           && request.resource.data.status == "start_pending_confirmation"
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["status", "rideStartedByRider", "rideConfirmedByPassenger", "startedAt"]);
+            .hasOnly([
+              "status", "rideStartedByRider", "rideConfirmedByPassenger",
+              "startedAt", "statusEnteredAt"
+            ]);
       }
 
       // passengerConfirmRideNowStarted(): only the owning passenger.
@@ -552,13 +691,17 @@ service cloud.firestore {
       }
 
       // riderRequestRideNowCompletion(): only the matched rider.
+      // statusEnteredAt - see the note on riderStart() above.
       function riderRequestCompletion() {
         return isRider()
           && resource.data.status == "ongoing"
           && resource.data.matchedRiderId == myUid()
           && request.resource.data.status == "end_pending_confirmation"
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["status", "rideEndedByRider", "rideCompletedByPassenger", "completedAt"]);
+            .hasOnly([
+              "status", "rideEndedByRider", "rideCompletedByPassenger",
+              "completedAt", "statusEnteredAt"
+            ]);
       }
 
       // passengerConfirmRideNowCompleted(): only the owning passenger.
@@ -840,6 +983,9 @@ service cloud.firestore {
     }
 
     match /ride_ratings/{ratingId} {
+      // requestId must name a ride that actually matches ratedBy (myUid())
+      // to ratedTo - without this, anyone could write a rating row for a
+      // ride they were never on.
       allow create: if signedIn()
         && request.resource.data.ratedBy == myUid()
         && request.resource.data.ratedTo is string
@@ -848,7 +994,8 @@ service cloud.firestore {
         && request.resource.data.requestId.size() > 0
         && request.resource.data.stars is int
         && request.resource.data.stars >= 1
-        && request.resource.data.stars <= 5;
+        && request.resource.data.stars <= 5
+        && sharesRideWith(request.resource.data.requestId, request.resource.data.ratedTo);
 
       allow read: if signedIn();
 
@@ -857,6 +1004,7 @@ service cloud.firestore {
     }
 
     match /ride_reports/{reportId} {
+      // Same evidence requirement as ride_ratings above.
       allow create: if signedIn()
         && request.resource.data.reportedBy == myUid()
         && request.resource.data.reportedUserId is string
@@ -865,7 +1013,8 @@ service cloud.firestore {
         && request.resource.data.requestId.size() > 0
         && request.resource.data.reason is string
         && request.resource.data.reason.size() > 0
-        && request.resource.data.status == "pending";
+        && request.resource.data.status == "pending"
+        && sharesRideWith(request.resource.data.requestId, request.resource.data.reportedUserId);
 
       allow read: if signedIn();
 

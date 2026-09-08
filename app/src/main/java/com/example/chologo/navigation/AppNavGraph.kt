@@ -31,7 +31,6 @@ fun AppNavGraph(startDestination: String) {
     val context = LocalContext.current
 
     val authViewModel: AuthViewModel = viewModel()
-    val rideNowViewModel: RideNowViewModel = viewModel()
 
     // Shared with the dashboards' own instances only by type - this one
     // backs the Ride History screen's "did this ride happen?" review,
@@ -225,6 +224,17 @@ fun AppNavGraph(startDestination: String) {
         composable(Screen.RideHistory.route) { backStackEntry ->
             val source = backStackEntry.arguments?.getString("source") ?: "passenger"
             val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+
+            // Scoped to this back stack entry, not the Activity: a
+            // previously Activity-scoped instance here stayed alive (and
+            // its passenger/rider history listeners kept running) across
+            // logout and a different account logging back in on the same
+            // session, since nothing about navigating away or signing out
+            // ever cleared it. Getting a fresh instance per visit means
+            // onCleared() runs (removing both listeners) the moment this
+            // screen leaves the back stack, so a later visit - by this
+            // account or another - always starts clean.
+            val rideNowViewModel: RideNowViewModel = viewModel()
 
             RideHistoryScreen(
                 userId = currentUserId,

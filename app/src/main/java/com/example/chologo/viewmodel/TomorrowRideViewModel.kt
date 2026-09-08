@@ -359,6 +359,14 @@ class TomorrowRideViewModel(
         }
     }
 
+    /**
+     * Cancels or force-closes a matched passenger's leg, whichever the
+     * request's current status actually calls for: a plain cancel while
+     * still ACCEPTED, or one of the rider's own abandonment escape hatches
+     * once the trip has moved further along - without those, a leg stuck
+     * at START_PENDING_CONFIRMATION/ONGOING/END_PENDING_CONFIRMATION had no
+     * way out for either side except the multi-hour missed-ride window.
+     */
     fun cancelAcceptedRideAsRider(
         request: RideRequest,
         riderId: String,
@@ -367,22 +375,40 @@ class TomorrowRideViewModel(
         setProcessing(request.requestId, true)
 
         viewModelScope.launch {
-            val result = repository.riderCancelAcceptedRide(
-                rideId = request.matchedRideId,
-                requestId = request.requestId,
-                riderId = riderId,
-                reason = reason
-            )
+            val result = when (request.status) {
+                RideRequestStatus.START_PENDING_CONFIRMATION ->
+                    repository.riderCancelUnstartedTrip(
+                        rideId = request.matchedRideId,
+                        requestId = request.requestId,
+                        riderId = riderId,
+                        reason = reason
+                    )
+
+                RideRequestStatus.ONGOING, RideRequestStatus.END_PENDING_CONFIRMATION ->
+                    repository.riderCloseUnconfirmedTrip(
+                        rideId = request.matchedRideId,
+                        requestId = request.requestId,
+                        riderId = riderId
+                    )
+
+                else ->
+                    repository.riderCancelAcceptedRide(
+                        rideId = request.matchedRideId,
+                        requestId = request.requestId,
+                        riderId = riderId,
+                        reason = reason
+                    )
+            }
 
             setProcessing(request.requestId, false)
 
             result.onSuccess {
                 _uiState.value = _uiState.value.copy(
-                    successMessage = "Ride cancelled and seat freed up."
+                    successMessage = "Trip closed and seat freed up."
                 )
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = e.message ?: "Failed to cancel ride."
+                    errorMessage = e.message ?: "Failed to close this trip."
                 )
             }
         }

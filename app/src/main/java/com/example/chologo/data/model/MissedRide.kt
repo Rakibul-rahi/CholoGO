@@ -30,6 +30,14 @@ object MissedRideWindow {
     const val GRACE_MINUTES = 180
 
     /**
+     * How long before the scheduled departure a rider is allowed to press
+     * Start Trip. Without a floor here, a rider could start (and thus lock
+     * the passenger into) a trip hours before the planned time, long
+     * before the passenger is anywhere near ready.
+     */
+    const val START_TRIP_WINDOW_MINUTES = 60
+
+    /**
      * Wall-clock millis of [rideDate] ("yyyy-MM-dd") at [timeMinutes]
      * minutes past midnight, both interpreted in the device's local
      * timezone - the same convention TomorrowRideReminderScheduler uses.
@@ -69,6 +77,27 @@ fun RideRequest.needsMissedRideReview(
     val departure = MissedRideWindow.departureMillis(rideDate, timeMinutes) ?: return false
 
     return nowMillis - departure > MissedRideWindow.GRACE_MINUTES * 60_000L
+}
+
+/**
+ * True once the scheduled departure is within
+ * [MissedRideWindow.START_TRIP_WINDOW_MINUTES] - the earliest point the
+ * rider may press Start Trip. A malformed/missing rideDate fails open
+ * (returns true) rather than permanently blocking a trip whose date this
+ * couldn't parse.
+ */
+fun RideRequest.canStartTrip(nowMillis: Long = System.currentTimeMillis()): Boolean {
+    val departure = MissedRideWindow.departureMillis(rideDate, timeMinutes) ?: return true
+    return nowMillis >= departure - MissedRideWindow.START_TRIP_WINDOW_MINUTES * 60_000L
+}
+
+/**
+ * Wall-clock millis of the moment Start Trip actually unlocks for this
+ * leg, or null if the departure itself couldn't be parsed.
+ */
+fun RideRequest.startTripUnlocksAtMillis(): Long? {
+    val departure = MissedRideWindow.departureMillis(rideDate, timeMinutes) ?: return null
+    return departure - MissedRideWindow.START_TRIP_WINDOW_MINUTES * 60_000L
 }
 
 /** This side's stored answer, or "" if they haven't been asked yet. */

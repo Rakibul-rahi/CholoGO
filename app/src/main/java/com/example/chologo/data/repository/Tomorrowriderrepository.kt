@@ -2,11 +2,13 @@ package com.example.chologo.data.repository
 
 import com.example.chologo.data.model.MissedRideAnswer
 import com.example.chologo.data.model.Ride
+import com.example.chologo.data.model.RideHistory
 import com.example.chologo.data.model.RideRequest
 import com.example.chologo.data.model.RideRequestStatus
 import com.example.chologo.data.model.VehicleType
 import com.example.chologo.data.model.answerFor
 import com.example.chologo.data.model.buildRouteKey
+import com.example.chologo.data.model.canStartTrip
 import com.example.chologo.data.model.resolvedStatusAfter
 import com.example.chologo.data.model.seatCapacity
 import com.example.chologo.data.model.seatsTaken
@@ -35,6 +37,15 @@ sealed class TomorrowLegResult {
 }
 
 /**
+ * Thrown from inside a transaction to signal an expected "can't edit this
+ * right now" outcome (TomorrowLegResult.Blocked), as opposed to a real
+ * failure (Result.failure) - lets upsertRiderRide/upsertPassengerRequest
+ * re-check their "safe to overwrite" precondition transactionally without
+ * losing the distinction between the two outcomes their callers expect.
+ */
+private class TomorrowLegBlockedException(message: String) : Exception(message)
+
+/**
  * Data layer for the "Tomorrow" ride flow, rebuilt to match the current
  * firestore.rules exactly:
  *  - a matched ride/request can no longer be deleted or overwritten, so
@@ -48,6 +59,7 @@ class TomorrowRideRepository(
 ) {
     private val ridesRef = db.collection("rides")
     private val rideRequestsRef = db.collection("ride_requests")
+    private val rideHistoryRef = db.collection("ride_history")
     private val usersRef = db.collection("users")
 
     private val apiBaseUrl = "https://chologo.onrender.com"
@@ -139,38 +151,56 @@ class TomorrowRideRepository(
             val routeKey = buildRouteKey(tripDirection, pickup, destination)
 
             if (existing != null) {
-                if (existing.status != "active" || existing.seatsTaken() > 0) {
-                    return Result.success(
-                        TomorrowLegResult.Blocked(
-                            "Your ${tripDirection.readableDirection()} ride is already " +
-                                    "matched with a passenger and can't be edited here."
+                // Re-checked transactionally below, not just here: the
+                // query above can't see a concurrent acceptRequest() that
+                // lands in the gap between this read and the write that
+                // follows it. A plain get()-then-update() here would let
+                // such an accept be silently overwritten - seat counts
+                // included - the instant after it was granted.
+                return try {
+                    db.runTransaction { transaction ->
+                        val docRef = ridesRef.document(existing.rideId)
+                        val fresh = transaction.get(docRef)
+                            .toObject(Ride::class.java)
+                            ?.copy(rideId = docRef.id)
+                            ?: throw TomorrowLegBlockedException(
+                                "Your ${tripDirection.readableDirection()} ride no longer exists."
+                            )
+
+                        if (fresh.status != "active" || fresh.seatsTaken() > 0) {
+                            throw TomorrowLegBlockedException(
+                                "Your ${tripDirection.readableDirection()} ride is already " +
+                                        "matched with a passenger and can't be edited here."
+                            )
+                        }
+
+                        transaction.update(
+                            docRef,
+                            mapOf(
+                                "riderName" to riderName,
+                                "pickup" to pickup,
+                                "destination" to destination,
+                                "tripTime" to tripTime,
+                                "timeMinutes" to timeMinutes,
+                                "routeKey" to routeKey,
+                                "vehicleType" to normalizedVehicleType,
+                                "vehicleModel" to vehicleModel,
+                                "vehicleNumber" to vehicleNumber,
+                                "vehicleColor" to vehicleColor,
+                                // Safe to reset both outright: the
+                                // transaction just confirmed zero seats
+                                // taken, on the current server state.
+                                "totalSeats" to seats,
+                                "availableSeats" to seats,
+                                "status" to "active"
+                            )
                         )
-                    )
+                    }.await()
+
+                    Result.success(TomorrowLegResult.Saved(existing.rideId, isNew = false))
+                } catch (e: TomorrowLegBlockedException) {
+                    Result.success(TomorrowLegResult.Blocked(e.message ?: "This ride can't be edited here."))
                 }
-
-                ridesRef.document(existing.rideId)
-                    .update(
-                        mapOf(
-                            "riderName" to riderName,
-                            "pickup" to pickup,
-                            "destination" to destination,
-                            "tripTime" to tripTime,
-                            "timeMinutes" to timeMinutes,
-                            "routeKey" to routeKey,
-                            "vehicleType" to normalizedVehicleType,
-                            "vehicleModel" to vehicleModel,
-                            "vehicleNumber" to vehicleNumber,
-                            "vehicleColor" to vehicleColor,
-                            // Safe to reset both outright: we only reach here
-                            // with zero seats taken.
-                            "totalSeats" to seats,
-                            "availableSeats" to seats,
-                            "status" to "active"
-                        )
-                    )
-                    .await()
-
-                return Result.success(TomorrowLegResult.Saved(existing.rideId, isNew = false))
             }
 
             val docRef = ridesRef.document()
@@ -287,6 +317,144 @@ class TomorrowRideRepository(
                 // Give the seat back, but never above the capacity the rider
                 // actually opened - otherwise repeated cancel/accept cycles
                 // could inflate a 2-seat car into a 5-seat one.
+                transaction.update(
+                    rideDoc,
+                    mapOf(
+                        "availableSeats" to (ride.availableSeats + 1)
+                            .coerceAtMost(ride.seatCapacity()),
+                        "status" to "active"
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // ---------- Rider abandonment escape hatches ----------
+    // Mirrors RideNowRequestRepository's riderCancelUnstartedTrip /
+    // riderCloseUnconfirmedTrip. Without these, a Tomorrow leg that's moved
+    // past ACCEPTED has no way out for either side except waiting out the
+    // full missed-ride grace window (MissedRideWindow.GRACE_MINUTES), even
+    // when it's obvious to the rider the passenger isn't coming or isn't
+    // answering.
+
+    /**
+     * Lets the matched rider walk away from a trip the passenger never got
+     * into: still START_PENDING_CONFIRMATION (the rider pressed Start and
+     * the passenger never confirmed). Restores the seat, same as a normal
+     * cancel.
+     */
+    suspend fun riderCancelUnstartedTrip(
+        rideId: String,
+        requestId: String,
+        riderId: String,
+        reason: String
+    ): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val rideDoc = ridesRef.document(rideId)
+                val requestDoc = rideRequestsRef.document(requestId)
+
+                val rideSnapshot = transaction.get(rideDoc)
+                val requestSnapshot = transaction.get(requestDoc)
+
+                if (!rideSnapshot.exists()) throw Exception("Ride not found.")
+                if (!requestSnapshot.exists()) throw Exception("Request not found.")
+
+                val ride = rideSnapshot.toObject(Ride::class.java)
+                    ?: throw Exception("Invalid ride data.")
+                val request = requestSnapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid request data.")
+
+                if (request.matchedRiderId != riderId) {
+                    throw Exception("This request isn't matched to you.")
+                }
+
+                if (request.status != RideRequestStatus.START_PENDING_CONFIRMATION) {
+                    throw Exception("Only a trip that never started can be cancelled here.")
+                }
+
+                val now = Timestamp.now()
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to "cancelled",
+                        "cancelledBy" to riderId,
+                        "cancelledByRole" to "rider",
+                        "cancellationReason" to reason,
+                        "cancelledAt" to now
+                    )
+                )
+
+                transaction.update(
+                    rideDoc,
+                    mapOf(
+                        "availableSeats" to (ride.availableSeats + 1)
+                            .coerceAtMost(ride.seatCapacity()),
+                        "status" to "active"
+                    )
+                )
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Closes a trip that was actually driven but which the passenger never
+     * confirmed the end of - ONGOING or END_PENDING_CONFIRMATION with no
+     * response. The outcome is UNVERIFIED, not COMPLETED: only the rider
+     * ever vouched for it, so it earns no history entry, no rating, no XP.
+     * Still restores the seat, since the leg is over either way.
+     */
+    suspend fun riderCloseUnconfirmedTrip(
+        rideId: String,
+        requestId: String,
+        riderId: String
+    ): Result<Unit> {
+        return try {
+            db.runTransaction { transaction ->
+                val rideDoc = ridesRef.document(rideId)
+                val requestDoc = rideRequestsRef.document(requestId)
+
+                val rideSnapshot = transaction.get(rideDoc)
+                val requestSnapshot = transaction.get(requestDoc)
+
+                if (!rideSnapshot.exists()) throw Exception("Ride not found.")
+                if (!requestSnapshot.exists()) throw Exception("Request not found.")
+
+                val ride = rideSnapshot.toObject(Ride::class.java)
+                    ?: throw Exception("Invalid ride data.")
+                val request = requestSnapshot.toObject(RideRequest::class.java)
+                    ?: throw Exception("Invalid request data.")
+
+                if (request.matchedRiderId != riderId) {
+                    throw Exception("This request isn't matched to you.")
+                }
+
+                if (request.status != RideRequestStatus.ONGOING &&
+                    request.status != RideRequestStatus.END_PENDING_CONFIRMATION
+                ) {
+                    throw Exception("Only a trip already under way can be closed here.")
+                }
+
+                val now = Timestamp.now()
+
+                transaction.update(
+                    requestDoc,
+                    mapOf(
+                        "status" to RideRequestStatus.UNVERIFIED,
+                        "closedByRole" to "rider",
+                        "closedAt" to now
+                    )
+                )
+
                 transaction.update(
                     rideDoc,
                     mapOf(
@@ -422,6 +590,13 @@ class TomorrowRideRepository(
                 newStatus
             }.await()
 
+            if (resolvedStatus == RideRequestStatus.COMPLETED) {
+                val completedRequest = getRequestById(requestId)
+                if (completedRequest != null) {
+                    saveTomorrowToHistory(completedRequest)
+                }
+            }
+
             Result.success(resolvedStatus)
         } catch (e: Exception) {
             Result.failure(e)
@@ -445,6 +620,16 @@ class TomorrowRideRepository(
 
                 if (request.status != RideRequestStatus.ACCEPTED) {
                     throw Exception("Trip can only be started after it is accepted.")
+                }
+
+                // Backstop for the UI's own canStartTrip() gate (RiderDashboardScreen) -
+                // keeps a rider from locking the passenger into a trip hours
+                // before the planned departure even if the client-side check
+                // is bypassed or stale.
+                if (!request.canStartTrip()) {
+                    throw Exception(
+                        "You can only start this trip within 1 hour of the scheduled time."
+                    )
                 }
 
                 transaction.update(
@@ -582,11 +767,80 @@ class TomorrowRideRepository(
                 if (request.matchedRiderId.isNotBlank()) {
                     transaction.update(
                         usersRef.document(request.matchedRiderId),
-                        "completedRideCount",
-                        FieldValue.increment(1)
+                        mapOf(
+                            "completedRideCount" to FieldValue.increment(1),
+                            // Lets firestore.rules' isValidCompletedRideBump()
+                            // verify this bump against a real ride tying the
+                            // passenger to the rider being credited.
+                            "lastCompletedRideEvidenceId" to requestId
+                        )
                     )
                 }
             }.await()
+
+            val completedRequest = getRequestById(requestId)
+            if (completedRequest != null) {
+                saveTomorrowToHistory(completedRequest)
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getRequestById(requestId: String): RideRequest? {
+        return try {
+            val snapshot = rideRequestsRef.document(requestId).get().await()
+            snapshot.toObject(RideRequest::class.java)?.copy(requestId = snapshot.id)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Saves a completed Tomorrow leg to the shared ride_history collection
+     * - the same one Ride Now writes to, so RideHistoryScreen reads both
+     * ride types from one place. Without this, a completed Tomorrow leg
+     * never appeared in Ride History for either side: the collection only
+     * ever received "ride_now" rows.
+     *
+     * Called once a leg reaches COMPLETED, whether through the normal
+     * Start/Complete lifecycle (passengerConfirmTripCompleted) or the
+     * missed-ride reconciliation path (submitMissedRideAnswer) - both call
+     * sites pass the just-updated request, so this never needs its own
+     * read, and each only ever calls it once per leg (their own
+     * transactions gate on the leg's prior status, so a retry after
+     * success fails the precondition before reaching this call).
+     */
+    suspend fun saveTomorrowToHistory(request: RideRequest): Result<Unit> {
+        return try {
+            val historyDoc = rideHistoryRef.document()
+
+            val history = RideHistory(
+                historyId = historyDoc.id,
+                rideType = "tomorrow",
+
+                requestId = request.requestId,
+
+                passengerId = request.userId,
+                passengerName = request.passengerName,
+
+                riderId = request.matchedRiderId,
+                riderName = request.matchedRiderName,
+                riderPhone = request.matchedRiderPhone,
+
+                pickup = request.pickup,
+                destination = request.destination,
+                tripTime = request.tripTime,
+                timeMinutes = request.timeMinutes,
+
+                status = "completed",
+                createdAt = request.createdAt,
+                completedAt = request.completedAt ?: Timestamp.now()
+            )
+
+            historyDoc.set(history).await()
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -686,53 +940,72 @@ class TomorrowRideRepository(
             val routeKey = buildRouteKey(tripDirection, pickup, destination)
 
             if (existing != null) {
-                if (existing.status != "pending" && existing.status != "cancelled") {
-                    return Result.success(
-                        TomorrowLegResult.Blocked(
-                            "Your ${tripDirection.readableDirection()} request is already " +
-                                    "accepted and can't be edited here."
+                // Re-checked transactionally below - see the matching note
+                // in upsertRiderRide above. A concurrent acceptRequest()
+                // landing between the query above and a plain update()
+                // here could otherwise be silently reverted back to
+                // "pending" with its match info wiped, right after the
+                // rider accepted it.
+                return try {
+                    db.runTransaction { transaction ->
+                        val docRef = rideRequestsRef.document(existing.requestId)
+                        val fresh = transaction.get(docRef)
+                            .toObject(RideRequest::class.java)
+                            ?.copy(requestId = docRef.id)
+                            ?: throw TomorrowLegBlockedException(
+                                "Your ${tripDirection.readableDirection()} request no longer exists."
+                            )
+
+                        if (fresh.status != "pending" && fresh.status != "cancelled") {
+                            throw TomorrowLegBlockedException(
+                                "Your ${tripDirection.readableDirection()} request is already " +
+                                        "accepted and can't be edited here."
+                            )
+                        }
+
+                        // "pending" is resubmitted in place. "cancelled"
+                        // (e.g. the rider backed out after accepting) is
+                        // also resubmitted in place, rather than blocked
+                        // forever - otherwise the leg can never return to
+                        // "pending", so no other rider can ever see or
+                        // match it again. Clear the stale match info from
+                        // the previous rider so the doc looks like a fresh
+                        // request.
+                        transaction.update(
+                            docRef,
+                            mapOf(
+                                "passengerName" to passengerName,
+                                "passengerPhone" to passengerPhone,
+                                "pickup" to pickup,
+                                "destination" to destination,
+                                "tripTime" to tripTime,
+                                "hour" to hour,
+                                "minute" to minute,
+                                "timeMinutes" to timeMinutes,
+                                "routeKey" to routeKey,
+                                "status" to "pending",
+                                "matchedRideId" to "",
+                                "matchedRiderId" to "",
+                                "matchedRiderName" to "",
+                                "matchedRiderPhone" to "",
+                                "matchedRideTime" to "",
+                                "matchedVehicleType" to "",
+                                "matchedVehicleModel" to "",
+                                "matchedVehicleNumber" to "",
+                                "matchedVehicleColor" to "",
+                                "acceptedAt" to null,
+                                "cancelledBy" to "",
+                                "cancelledByRole" to "",
+                                "cancellationReason" to "",
+                                "cancelledAt" to null
+                            )
                         )
-                    )
+                    }.await()
+
+                    Result.success(TomorrowLegResult.Saved(existing.requestId, isNew = false))
+                } catch (e: TomorrowLegBlockedException) {
+                    Result.success(TomorrowLegResult.Blocked(e.message ?: "This request can't be edited here."))
                 }
-
-                // "pending" is resubmitted in place. "cancelled" (e.g. the
-                // rider backed out after accepting) is also resubmitted in
-                // place, rather than blocked forever - otherwise the leg can
-                // never return to "pending", so no other rider can ever see
-                // or match it again. Clear the stale match info from the
-                // previous rider so the doc looks like a fresh request.
-                rideRequestsRef.document(existing.requestId)
-                    .update(
-                        mapOf(
-                            "passengerName" to passengerName,
-                            "passengerPhone" to passengerPhone,
-                            "pickup" to pickup,
-                            "destination" to destination,
-                            "tripTime" to tripTime,
-                            "hour" to hour,
-                            "minute" to minute,
-                            "timeMinutes" to timeMinutes,
-                            "routeKey" to routeKey,
-                            "status" to "pending",
-                            "matchedRideId" to "",
-                            "matchedRiderId" to "",
-                            "matchedRiderName" to "",
-                            "matchedRiderPhone" to "",
-                            "matchedRideTime" to "",
-                            "matchedVehicleType" to "",
-                            "matchedVehicleModel" to "",
-                            "matchedVehicleNumber" to "",
-                            "matchedVehicleColor" to "",
-                            "acceptedAt" to null,
-                            "cancelledBy" to "",
-                            "cancelledByRole" to "",
-                            "cancellationReason" to "",
-                            "cancelledAt" to null
-                        )
-                    )
-                    .await()
-
-                return Result.success(TomorrowLegResult.Saved(existing.requestId, isNew = false))
             }
 
             val docRef = rideRequestsRef.document()
