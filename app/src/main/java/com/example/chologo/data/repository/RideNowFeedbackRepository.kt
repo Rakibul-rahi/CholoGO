@@ -189,7 +189,11 @@ class RideNowFeedbackRepository(
                     userDoc,
                     mapOf(
                         "ratingAverage" to newAverage,
-                        "ratingCount" to newCount
+                        "ratingCount" to newCount,
+                        // See the matching note in submitRideRating() above -
+                        // firestore.rules' isValidRatingBump() requires this
+                        // for either rating direction.
+                        "lastRatingEvidenceId" to rating.requestId
                     )
                 )
 

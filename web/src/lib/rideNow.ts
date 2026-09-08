@@ -589,6 +589,11 @@ export async function passengerConfirmRideNowCompleted(
     if (request.matchedRiderId) {
       transaction.update(doc(usersCol, request.matchedRiderId), {
         completedRideCount: increment(1),
+        // firestore.rules' isValidCompletedRideBump() requires this -
+        // without it this whole transaction (status update included) is
+        // rejected atomically, which is what silently broke "Confirm safe
+        // arrival" here after that rule started requiring it.
+        lastCompletedRideEvidenceId: requestId,
       });
     }
   });
@@ -811,6 +816,9 @@ export async function submitRideRating(params: {
     transaction.update(userRef, {
       ratingAverage: newAverage,
       ratingCount: newCount,
+      // firestore.rules' isValidRatingBump() requires this - it ties the
+      // bump to a real ride matching rater to ratee.
+      lastRatingEvidenceId: params.requestId,
     });
 
     transaction.update(requestRef, {
@@ -872,6 +880,9 @@ export async function submitPassengerRating(params: {
     transaction.update(userRef, {
       ratingAverage: newAverage,
       ratingCount: newCount,
+      // See the matching note in submitRideRating() above -
+      // isValidRatingBump() requires this for either rating direction.
+      lastRatingEvidenceId: params.requestId,
     });
 
     transaction.update(requestRef, {
@@ -926,6 +937,9 @@ export async function submitRideReport(params: {
 
     transaction.update(doc(usersCol, params.reportedUserId), {
       reportCount: increment(1),
+      // firestore.rules' isValidReportBump() requires this - it ties the
+      // bump to a real ride matching reporter to reportee.
+      lastReportEvidenceId: params.requestId,
     });
 
     transaction.update(requestRef, {

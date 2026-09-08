@@ -32,24 +32,41 @@ service cloud.firestore {
     }
 
     // Evidence that myUid() actually shares a matched ride with otherUid,
-    // on whichever flow requestId belongs to. Mirrors the reasoning the
-    // xp_events ledger already uses: a counter bump (or a rating/report
-    // row) is only as trustworthy as the real document backing it, so this
-    // reads the ride itself rather than trusting the uids the client hands
-    // over. Declared at the top level so both the users/{userId} rating
-    // bump and the ride_ratings/ride_reports create rules can use it.
+    // on whichever flow requestId belongs to - in either direction: the
+    // passenger crediting/rating/reporting the rider, or (since ratings
+    // now go both ways) the rider doing the same to the passenger.
+    // Mirrors the reasoning the xp_events ledger already uses: a counter
+    // bump (or a rating/report row) is only as trustworthy as the real
+    // document backing it, so this reads the ride itself rather than
+    // trusting the uids the client hands over. Declared at the top level
+    // so both the users/{userId} rating bump and the ride_ratings/
+    // ride_reports create rules can use it.
+    function rideNowPairMatches(ride, otherUid) {
+      return (ride.passengerId == myUid() && ride.matchedRiderId == otherUid)
+        || (ride.matchedRiderId == myUid() && ride.passengerId == otherUid);
+    }
+
+    function tomorrowPairMatches(leg, otherUid) {
+      return (leg.userId == myUid() && leg.matchedRiderId == otherUid)
+        || (leg.matchedRiderId == myUid() && leg.userId == otherUid);
+    }
+
     function sharesRideWith(requestId, otherUid) {
       return
         (
           exists(/databases/$(database)/documents/ride_now_requests/$(requestId))
-          && get(/databases/$(database)/documents/ride_now_requests/$(requestId)).data.passengerId == myUid()
-          && get(/databases/$(database)/documents/ride_now_requests/$(requestId)).data.matchedRiderId == otherUid
+          && rideNowPairMatches(
+            get(/databases/$(database)/documents/ride_now_requests/$(requestId)).data,
+            otherUid
+          )
         )
         ||
         (
           exists(/databases/$(database)/documents/ride_requests/$(requestId))
-          && get(/databases/$(database)/documents/ride_requests/$(requestId)).data.userId == myUid()
-          && get(/databases/$(database)/documents/ride_requests/$(requestId)).data.matchedRiderId == otherUid
+          && tomorrowPairMatches(
+            get(/databases/$(database)/documents/ride_requests/$(requestId)).data,
+            otherUid
+          )
         );
     }
 
