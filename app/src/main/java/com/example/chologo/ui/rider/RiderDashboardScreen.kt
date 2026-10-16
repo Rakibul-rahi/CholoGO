@@ -2,6 +2,8 @@
 
 package com.example.chologo.ui.rider
 
+import com.example.chologo.data.model.ChatFlow
+import com.example.chologo.ui.chat.RideChatButton
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -48,6 +50,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,12 +91,13 @@ import com.example.chologo.navigation.Screen
 import com.example.chologo.notifications.TomorrowRideReminderScheduler
 import com.example.chologo.data.repository.XpRepository
 import com.example.chologo.ui.common.CancelRideDialog
-import com.example.chologo.ui.common.CholoGoTabRow
+import com.example.chologo.ui.common.CholoGoBottomNav
 import com.example.chologo.ui.common.CholoGoTopBar
 import com.example.chologo.ui.common.RatingDialog
 import com.example.chologo.ui.common.rememberNotificationPermissionRequester
 import com.example.chologo.ui.components.LevelCard
 import com.example.chologo.ui.components.LocalAdCarouselBanner
+import com.example.chologo.ui.map.CampusMapScreen
 import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.utils.LevelSystem
 import com.example.chologo.viewmodel.AuthViewModel
@@ -230,9 +234,19 @@ fun RiderDashboardScreen(
         LevelSystem.getLevelInfo(riderXp)
     }
 
+    Scaffold(
+        bottomBar = {
+            CholoGoBottomNav(
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
+            )
+        },
+        containerColor = DashboardBg
+    ) { innerPadding ->
     Surface(
         modifier = Modifier
             .fillMaxSize()
+            .padding(innerPadding)
             .background(DashboardBg),
         color = DashboardBg
     ) {
@@ -294,13 +308,6 @@ fun RiderDashboardScreen(
             }
 
             item {
-                CholoGoTabRow(
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it }
-                )
-            }
-
-            item {
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
@@ -321,7 +328,9 @@ fun RiderDashboardScreen(
                                 navController = navController
                             )
 
-                            1 -> RiderTomorrowDashboardContent(
+                            1 -> CampusMapScreen(modifier = Modifier.padding(horizontal = 20.dp))
+
+                            2 -> RiderTomorrowDashboardContent(
                                 uiState = tomorrowUiState,
                                 tomorrowDate = tomorrowDate,
                                 riderId = authState.userId,
@@ -381,6 +390,7 @@ fun RiderDashboardScreen(
             }
             }
         }
+    }
     }
 
     val ratingTarget = tomorrowRatingTarget
@@ -1199,6 +1209,20 @@ private fun MatchedPassengerRow(
                     }
                 }
             }
+        }
+
+        if (
+            request.status in RideRequestStatus.UNFINISHED_LIFECYCLE_STATUSES ||
+            request.status == RideRequestStatus.COMPLETED
+        ) {
+            Spacer(modifier = Modifier.height(10.dp))
+
+            RideChatButton(
+                flow = ChatFlow.TOMORROW,
+                requestId = request.requestId,
+                status = request.status,
+                otherPartyName = request.passengerName
+            )
         }
     }
 

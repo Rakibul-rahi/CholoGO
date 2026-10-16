@@ -2,6 +2,8 @@
 
 package com.example.chologo.ui.passenger
 
+import com.example.chologo.data.model.ChatFlow
+import com.example.chologo.ui.chat.RideChatButton
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -779,44 +781,53 @@ fun AcceptedRequestsSection(
         savedRequestList
             .filter { it.status in RideRequestStatus.ACTIVE_LIFECYCLE_STATUSES }
             .forEach { request ->
-                when (request.status) {
-                    RideRequestStatus.START_PENDING_CONFIRMATION -> {
-                        TomorrowRideStartConfirmationCard(
-                            request = request,
-                            onConfirmStarted = { onConfirmStarted(request) },
-                            onRejectStarted = { onRejectStarted(request) }
-                        )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when (request.status) {
+                        RideRequestStatus.START_PENDING_CONFIRMATION -> {
+                            TomorrowRideStartConfirmationCard(
+                                request = request,
+                                onConfirmStarted = { onConfirmStarted(request) },
+                                onRejectStarted = { onRejectStarted(request) }
+                            )
+                        }
+
+                        RideRequestStatus.ONGOING -> {
+                            TomorrowRideOngoingCard(
+                                request = request,
+                                onCallRider = { openDialer(context, request.matchedRiderPhone) }
+                            )
+                        }
+
+                        RideRequestStatus.END_PENDING_CONFIRMATION -> {
+                            TomorrowRideCompletionConfirmationCard(
+                                request = request,
+                                onConfirmCompleted = { onConfirmCompleted(request) },
+                                onReportIssue = { onReportRide(request) }
+                            )
+                        }
+
+                        RideRequestStatus.COMPLETED -> {
+                            TomorrowRideCompletedCard(
+                                request = request,
+                                onRateRide = { onRateRide(request) },
+                                onReportRide = { onReportRide(request) }
+                            )
+                        }
+
+                        else -> {
+                            TomorrowRideAcceptedCard(
+                                request = request,
+                                onCallRider = { openDialer(context, request.matchedRiderPhone) }
+                            )
+                        }
                     }
 
-                    RideRequestStatus.ONGOING -> {
-                        TomorrowRideOngoingCard(
-                            request = request,
-                            onCallRider = { openDialer(context, request.matchedRiderPhone) }
-                        )
-                    }
-
-                    RideRequestStatus.END_PENDING_CONFIRMATION -> {
-                        TomorrowRideCompletionConfirmationCard(
-                            request = request,
-                            onConfirmCompleted = { onConfirmCompleted(request) },
-                            onReportIssue = { onReportRide(request) }
-                        )
-                    }
-
-                    RideRequestStatus.COMPLETED -> {
-                        TomorrowRideCompletedCard(
-                            request = request,
-                            onRateRide = { onRateRide(request) },
-                            onReportRide = { onReportRide(request) }
-                        )
-                    }
-
-                    else -> {
-                        TomorrowRideAcceptedCard(
-                            request = request,
-                            onCallRider = { openDialer(context, request.matchedRiderPhone) }
-                        )
-                    }
+                    RideChatButton(
+                        flow = ChatFlow.TOMORROW,
+                        requestId = request.requestId,
+                        status = request.status,
+                        otherPartyName = request.matchedRiderName
+                    )
                 }
             }
     }
