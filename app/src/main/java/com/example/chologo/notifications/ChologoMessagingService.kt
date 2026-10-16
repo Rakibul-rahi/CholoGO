@@ -1,6 +1,7 @@
 package com.example.chologo.notifications
 
 import com.example.chologo.repository.UserRepository
+import com.example.chologo.viewmodel.ActiveChatTracker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -25,6 +26,15 @@ class ChologoMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+
+        // A chat push for the thread that's already open on screen is noise.
+        if (message.data["type"] == "chat") {
+            val key = ActiveChatTracker.keyFor(
+                message.data["flow"].orEmpty(),
+                message.data["requestId"].orEmpty()
+            )
+            if (ActiveChatTracker.openChatKey == key) return
+        }
 
         val notification = message.notification ?: return
         val title = notification.title ?: return

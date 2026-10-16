@@ -2,6 +2,8 @@
 
 package com.example.chologo.ui.rider
 
+import com.example.chologo.data.model.ChatFlow
+import com.example.chologo.ui.chat.RideChatButton
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -665,6 +667,18 @@ private fun RiderActiveTripSection(
                     isRider = true
                 )
             }
+        }
+
+        if (
+            request.status in RideNowStatus.MATCHED_STATUSES ||
+            request.status == RideNowStatus.COMPLETED
+        ) {
+            RideChatButton(
+                flow = ChatFlow.RIDE_NOW,
+                requestId = request.requestId,
+                status = request.status,
+                otherPartyName = request.passengerName
+            )
         }
     }
 }

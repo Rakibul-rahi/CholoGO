@@ -2,6 +2,8 @@
 
 package com.example.chologo.ui.passenger
 
+import com.example.chologo.data.model.ChatFlow
+import com.example.chologo.ui.chat.RideChatButton
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -408,6 +410,19 @@ fun PassengerRideNowScreen(
                     )
                 }
             }
+        }
+
+        if (
+            passengerRequest != null &&
+            (passengerRequest.status in RideNowStatus.MATCHED_STATUSES ||
+                passengerRequest.status == RideNowStatus.COMPLETED)
+        ) {
+            RideChatButton(
+                flow = ChatFlow.RIDE_NOW,
+                requestId = passengerRequest.requestId,
+                status = passengerRequest.status,
+                otherPartyName = passengerRequest.matchedRiderName
+            )
         }
 
         if (

@@ -70,6 +70,28 @@ service cloud.firestore {
         );
     }
 
+    // ---------- In-ride chat ----------
+    // messages/{messageId} lives under both ride_now_requests/{id} and
+    // ride_requests/{id}. Only the two matched people can read it, and they
+    // can only post while the trip is actually locked in - once it's
+    // finished the thread is read-only, and the API server's chat sweep
+    // deletes it 24 hours later. Nobody can edit or delete a message
+    // (that's the sweep's job, via the admin SDK).
+    function chatOpenStatuses() {
+      return ["accepted", "start_pending_confirmation", "ongoing", "end_pending_confirmation"];
+    }
+
+    function validChatMessage() {
+      let m = request.resource.data;
+      return m.keys().hasOnly(["senderId", "text", "createdAt"])
+        && m.keys().hasAll(["senderId", "text", "createdAt"])
+        && m.senderId == myUid()
+        && m.text is string
+        && m.text.trim().size() > 0
+        && m.text.size() <= 500
+        && m.createdAt == request.time;
+    }
+
     match /users/{userId} {
 
       // The owner may edit their own profile fields, but never the fields
@@ -514,6 +536,24 @@ service cloud.firestore {
       allow delete: if isPassenger()
         && resource.data.userId == myUid()
         && resource.data.status == "pending";
+
+      match /messages/{messageId} {
+        function chatParent() {
+          return get(/databases/$(database)/documents/ride_requests/$(requestId)).data;
+        }
+
+        function isChatMember() {
+          return signedIn()
+            && chatParent().matchedRiderId != ""
+            && (chatParent().userId == myUid() || chatParent().matchedRiderId == myUid());
+        }
+
+        allow read: if isChatMember();
+        allow create: if isChatMember()
+          && chatParent().status in chatOpenStatuses()
+          && validChatMessage();
+        allow update, delete: if false;
+      }
     }
 
     // ---------- Tomorrow flow: rider-side pre-scheduled rides ----------
@@ -842,6 +882,24 @@ service cloud.firestore {
       allow delete: if isPassenger()
         && resource.data.passengerId == myUid()
         && resource.data.status == "searching";
+
+      match /messages/{messageId} {
+        function chatParent() {
+          return get(/databases/$(database)/documents/ride_now_requests/$(requestId)).data;
+        }
+
+        function isChatMember() {
+          return signedIn()
+            && chatParent().matchedRiderId != ""
+            && (chatParent().passengerId == myUid() || chatParent().matchedRiderId == myUid());
+        }
+
+        allow read: if isChatMember();
+        allow create: if isChatMember()
+          && chatParent().status in chatOpenStatuses()
+          && validChatMessage();
+        allow update, delete: if false;
+      }
     }
 
     match /ride_history/{historyId} {
