@@ -17,9 +17,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -39,11 +41,12 @@ import androidx.navigation.NavController
 import com.example.chologo.navigation.Screen
 import com.example.chologo.data.repository.XpRepository
 import com.example.chologo.utils.LevelSystem
-import com.example.chologo.ui.common.CholoGoTabRow
+import com.example.chologo.ui.common.CholoGoBottomNav
 import com.example.chologo.ui.common.CholoGoTopBar
 import com.example.chologo.ui.common.GuestSignInBanner
 import com.example.chologo.ui.components.LevelCard
 import com.example.chologo.ui.components.LocalAdCarouselBanner
+import com.example.chologo.ui.map.CampusMapScreen
 import com.example.chologo.ui.theme.LocalIsDarkTheme
 import com.example.chologo.viewmodel.AuthViewModel
 import com.google.firebase.auth.FirebaseAuth
@@ -119,9 +122,19 @@ fun PassengerDashboardScreen(
         LevelSystem.getLevelInfo(passengerXp)
     }
 
+    Scaffold(
+        bottomBar = {
+            CholoGoBottomNav(
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
+            )
+        },
+        containerColor = DashboardBg
+    ) { innerPadding ->
     Surface(
         modifier = Modifier
             .fillMaxSize()
+            .padding(innerPadding)
             .background(DashboardBg),
         color = DashboardBg
     ) {
@@ -203,13 +216,6 @@ fun PassengerDashboardScreen(
             }
 
             item {
-                CholoGoTabRow(
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it }
-                )
-            }
-
-            item {
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
@@ -231,7 +237,9 @@ fun PassengerDashboardScreen(
                                 onRequireLogin = onRequireLogin
                             )
 
-                            1 -> PassengerTomorrowTab(
+                            1 -> CampusMapScreen(modifier = Modifier.padding(horizontal = 20.dp))
+
+                            2 -> PassengerTomorrowTab(
                                 authViewModel = authViewModel,
                                 onRequireLogin = onRequireLogin
                             )
@@ -241,5 +249,6 @@ fun PassengerDashboardScreen(
             }
             }
         }
+    }
     }
 }

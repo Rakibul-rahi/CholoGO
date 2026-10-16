@@ -41,6 +41,14 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // The bundled dhaka.pmtiles archive is opened via random-access byte
+    // ranges at runtime (after being copied to internal storage) - leaving
+    // it uncompressed in the APK avoids AAPT re-compressing already-gzipped
+    // tile data for no benefit.
+    androidResources {
+        noCompress += listOf("pmtiles")
+    }
 }
 
 dependencies {
@@ -51,6 +59,11 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
+    // Ride Now live location sharing (rider pings, passenger one-shot) -
+    // Realtime Database, not Firestore, since it fits frequent ephemeral
+    // writes far better. Requires enabling Realtime Database for this
+    // project in the Firebase console - see RideNowLocationRepository.kt.
+    implementation("com.google.firebase:firebase-database")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     implementation("androidx.navigation:navigation-compose:2.7.7")
@@ -60,6 +73,11 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Offline vector map (renders a locally-bundled Dhaka .pmtiles archive -
+    // see app/src/main/assets - no API key, no network required to draw the
+    // base map).
+    implementation("org.maplibre.gl:android-sdk:13.6.1")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

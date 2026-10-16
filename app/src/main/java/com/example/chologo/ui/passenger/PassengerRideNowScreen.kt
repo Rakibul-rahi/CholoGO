@@ -28,6 +28,7 @@ import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.ui.common.RatingDialog
 import com.example.chologo.ui.common.ReportDialog
+import com.example.chologo.ui.map.RideNowLiveMap
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
@@ -412,6 +413,9 @@ fun PassengerRideNowScreen(
             }
         }
 
+        // Shared for every stage of a locked-in trip - accepted, started,
+        // ongoing, or waiting on the rider's arrival confirmation - and
+        // gone the instant it lands on COMPLETED (or anything else).
         if (
             passengerRequest != null &&
             (passengerRequest.status in RideNowStatus.MATCHED_STATUSES ||
@@ -422,6 +426,13 @@ fun PassengerRideNowScreen(
                 requestId = passengerRequest.requestId,
                 status = passengerRequest.status,
                 otherPartyName = passengerRequest.matchedRiderName
+            )
+        }
+
+        if (passengerRequest != null && passengerRequest.status in RideNowStatus.MATCHED_STATUSES) {
+            RideNowLiveMap(
+                requestId = passengerRequest.requestId,
+                isRider = false
             )
         }
 
