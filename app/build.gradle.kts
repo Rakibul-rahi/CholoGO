@@ -78,6 +78,9 @@ dependencies {
     // see app/src/main/assets - no API key, no network required to draw the
     // base map).
     implementation("org.maplibre.gl:android-sdk:13.6.1")
+    // Fused location provider - asks for a fresh GPS/network fix instead of
+    // relying on a cached last-known location that is often null.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

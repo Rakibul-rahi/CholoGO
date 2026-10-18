@@ -28,7 +28,7 @@ import com.example.chologo.data.model.RideNowRequest
 import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.ui.common.RatingDialog
 import com.example.chologo.ui.common.ReportDialog
-import com.example.chologo.ui.map.RideNowLiveMap
+import com.example.chologo.ui.map.RideNowMapSection
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
@@ -430,9 +430,11 @@ fun PassengerRideNowScreen(
         }
 
         if (passengerRequest != null && passengerRequest.status in RideNowStatus.MATCHED_STATUSES) {
-            RideNowLiveMap(
+            RideNowMapSection(
                 requestId = passengerRequest.requestId,
-                isRider = false
+                isRider = false,
+                status = passengerRequest.status,
+                otherPartyName = passengerRequest.matchedRiderName
             )
         }
 

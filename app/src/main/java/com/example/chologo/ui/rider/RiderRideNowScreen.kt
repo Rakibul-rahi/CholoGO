@@ -66,7 +66,7 @@ import com.example.chologo.data.model.RideNowStatus
 import com.example.chologo.data.model.riderMayForceClose
 import com.google.firebase.Timestamp
 import com.example.chologo.ui.common.RatingDialog
-import com.example.chologo.ui.map.RideNowLiveMap
+import com.example.chologo.ui.map.RideNowMapSection
 import com.example.chologo.viewmodel.AuthViewModel
 import com.example.chologo.viewmodel.RideNowUiState
 import com.example.chologo.viewmodel.RideNowViewModel
@@ -687,9 +687,11 @@ private fun RiderActiveTripSection(
         }
 
         if (request.status in RideNowStatus.MATCHED_STATUSES) {
-            RideNowLiveMap(
+            RideNowMapSection(
                 requestId = request.requestId,
-                isRider = true
+                isRider = true,
+                status = request.status,
+                otherPartyName = request.passengerName
             )
         }
     }
