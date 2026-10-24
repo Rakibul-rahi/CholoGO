@@ -509,7 +509,7 @@ Full Tomorrow trip lifecycle, Tomorrow ratings and reports, Google Sign-In with 
 
 **Website:** https://chologoaust.netlify.app/
 
-**APK Link:** Not added yet
+**APK Link:** (https://appetize.io/app/b_6lepunxztz4iwffsb345k2lliq)
 
 ---
 
